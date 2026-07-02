@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f6f7f3;
+  --foreground: #172019;
+  --card: #ffffff;
+  --muted: #667068;
+  --brand: #2f6b4f;
+  --brand-dark: #204936;
+  --accent: #f2b84b;
+  --line: #dfe5df;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-dark: var(--brand-dark);
+  --color-accent: var(--accent);
+  --color-line: var(--line);
+  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+}
+
+button, a, input, select {
+  transition: all 160ms ease;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 65%, white);
+  outline-offset: 2px;
+}

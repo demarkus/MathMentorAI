@@ -1,0 +1,44 @@
+# Roadmap — Math Mentor AI
+
+Sequenced from the current MVP toward a monetised beta. Items reflect the [current limitations](MVP_SCOPE.md#-intentionally-excluded-for-now); nothing here is built yet unless the MVP scope says so.
+
+## Next 30 days — make the beta collectable
+
+- **Payment integration (PayFast or Yoco first, SA-friendly).** Wire real checkout to the existing `/pricing` plans; convert `beta_leads` interest into paid subscriptions.
+- **Beta onboarding flow.** Post-signup guidance that routes a new user into the diagnostic and first practice set.
+- **Production email templates.** Branded Supabase confirmation / password-reset emails.
+- **Apply all migrations to the production database** and run the deployment smoke test.
+
+## Next 60 days — parents and trust
+
+- **Secure parent–learner linking.** Learner-email invite + learner confirmation; unlock the parent report pages (currently placeholders) to read *only* linked learners' data under RLS.
+- **Real parent progress reports.** Populate `TopicRiskTable` / `RecommendationList` from the linked learner's `reports` and `attempts`.
+- **First automated tests.** Unit tests for the deterministic logic (`check-answer`, `diagnostic`, `practice`, `progress`) and a couple of auth/role smoke tests.
+- **Basic analytics.** Funnel + core-loop events (signup → diagnostic → practice → subscribe).
+
+## Next 90 days — depth and polish
+
+- **Improved symbolic answer checking.** Move beyond string normalisation toward equivalence for algebraic forms (e.g. factor order, sign, simple simplification).
+- **AI-guided hints/explanations.** Optional model-generated hints layered on top of the seeded `solution_steps`.
+- **PDF export.** Server-side PDF for teacher worksheets/memos and learner/parent reports.
+- **Content expansion.** Grow the question bank and consider adjacent topics/grades once the core loop is proven.
+
+## Five-month income plan *(illustrative — planning target, not a forecast)*
+
+Assumes payments live by month 1 and parent linking by month 2. Prices from `src/lib/marketing/plans.ts`.
+
+| Month | Focus | Illustrative goal |
+|-------|-------|-------------------|
+| 1 | Paid beta launch (Parent Beta R199/4wk, Learner Monthly R149) | Convert first paying cohort from `beta_leads` |
+| 2 | Parent linking live; Teacher Basic/Pro (R79 / R149) push to teachers | Add teacher subscriptions alongside learners |
+| 3 | Retention + content depth; reduce churn | Grow recurring MRR; first renewals |
+| 4 | Tutor Centre (from R499) outreach to centres/small schools | Land first higher-value centre accounts |
+| 5 | Optimise funnel with analytics; annual/term options | Compounding MRR across all four segments |
+
+> These figures are **directional planning inputs**, not committed revenue. Actuals depend on conversion, pricing tests, and marketing — none of which are instrumented yet. Track against real data once analytics and payments ship.
+
+## Dependencies & risks
+
+- Payments and parent linking are the two gates to monetisation; both are currently **not implemented**.
+- Symbolic/AI features should not regress the current deterministic grading — keep them additive and testable.
+- Test coverage is currently zero; add tests before large logic changes.
