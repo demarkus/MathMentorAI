@@ -63,6 +63,7 @@ export default async function DiagnosticPage() {
     difficulty: question.difficulty,
     marks: question.marks,
     topicName: question.topicName,
+    grade: question.grade,
   }));
 
   return (

@@ -98,6 +98,27 @@ export function gradePractice(
   };
 }
 
+/**
+ * A short, plain-language next step for a practice run. Transparent rules:
+ * strong scores move on; mid scores review specific mistakes; low scores slow
+ * down and lean on the hints and worked steps before retrying.
+ */
+export function buildPracticeRecommendation(summary: PracticeSummary): string {
+  if (summary.totalQuestions === 0) return "Run a practice set to get a personalised next step.";
+  const missed = summary.questions.filter((question) => !question.isCorrect).length;
+
+  if (summary.percentage >= 80) {
+    return "Strong work on this topic — try a harder topic or run a mixed set to keep improving.";
+  }
+  if (summary.percentage < 40) {
+    return "Take it step by step: read the worked solutions and hints below, then retry this topic when you're ready.";
+  }
+  if (missed > 0) {
+    return `You're getting there. Review the ${missed} question${missed === 1 ? "" : "s"} marked "Review" below, then retry this topic.`;
+  }
+  return "Nice progress — retry this topic to lock it in, or move on to a new one.";
+}
+
 /** Runtime guard for a summary loaded from an untrusted source (URL or DB jsonb). */
 export function isPracticeSummary(value: unknown): value is PracticeSummary {
   if (!value || typeof value !== "object") return false;

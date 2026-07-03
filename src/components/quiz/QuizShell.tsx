@@ -4,7 +4,9 @@ import { useState } from "react";
 import { QuestionCard } from "./QuestionCard";
 import { AnswerInput } from "./AnswerInput";
 import { QuizProgress } from "./QuizProgress";
+import { WorkedSteps, HintBox } from "./Explanation";
 import { isAnswerCorrect } from "@/lib/math/check-answer";
+import { describeExpectedAnswer } from "@/lib/math/answer-format";
 
 export type QuizShellQuestion = {
   id: string;
@@ -12,8 +14,10 @@ export type QuizShellQuestion = {
   difficulty: string;
   marks: number;
   topicName?: string;
+  grade?: number;
   // Only supplied in reveal (practice) mode — used for immediate feedback.
   answerText?: string;
+  hint?: string;
   explanation?: string[];
 };
 
@@ -128,7 +132,9 @@ export function QuizShell({
           difficulty={question.difficulty}
           marks={question.marks}
           topicName={question.topicName}
+          grade={question.grade}
           questionText={question.question_text}
+          expectedAnswerNote={describeExpectedAnswer(question.question_text, question.answerText)}
         >
           <div className="mt-8">
             <AnswerInput
@@ -143,22 +149,37 @@ export function QuizShell({
 
       {isRevealed && (
         <div
-          className={`mt-6 rounded-xl p-4 text-sm ${
+          role="status"
+          className={`mt-6 space-y-3 rounded-xl p-4 text-sm ${
             isCorrect ? "bg-green-50 text-green-900" : "bg-amber-50 text-amber-950"
           }`}
         >
-          <p className="font-semibold">{isCorrect ? "Correct!" : "Not quite."}</p>
+          <p className="font-semibold">
+            {isCorrect ? "Correct — nicely done!" : "Not quite — let's work through it together."}
+          </p>
+
           {!isCorrect && (
-            <p className="mt-1">
-              Correct answer: <span className="font-mono font-semibold">{question.answerText}</span>
+            <p>
+              Your answer:{" "}
+              <span className="font-mono font-semibold">{(answers[question.id] ?? "").trim() || "—"}</span>
             </p>
           )}
-          {question.explanation && question.explanation.length > 0 && (
-            <ol className="mt-2 list-inside list-decimal space-y-1">
-              {question.explanation.map((step, stepIndex) => (
-                <li key={stepIndex}>{step}</li>
-              ))}
-            </ol>
+          <p>
+            {isCorrect ? "Accepted answer" : "Correct answer"}:{" "}
+            <span className="font-mono font-semibold">{question.answerText}</span>
+          </p>
+
+          {!isCorrect && question.hint && <HintBox hint={question.hint} className="bg-white/60" />}
+
+          <div>
+            <p className="font-semibold">Worked steps</p>
+            <WorkedSteps steps={question.explanation ?? []} className="mt-1" />
+          </div>
+
+          {!isCorrect && (
+            <p className="text-xs">
+              Take a moment to review the steps above — you can retry this topic anytime.
+            </p>
           )}
         </div>
       )}

@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
-import { decodePracticeSummary, isPracticeSummary, type PracticeSummary } from "@/lib/math/practice";
+import {
+  decodePracticeSummary,
+  isPracticeSummary,
+  buildPracticeRecommendation,
+  type PracticeSummary,
+} from "@/lib/math/practice";
+import { resultBand } from "@/lib/math/result-band";
+import { WorkedSteps } from "@/components/quiz/Explanation";
+import { Badge } from "@/components/ui/Badge";
 
 async function loadReport(reportId: string): Promise<PracticeSummary | null> {
   const supabase = await createClient();
@@ -46,16 +54,25 @@ export default async function PracticeResultPage({
 
   const retryHref = `/learner/practice/${summary.topicSlug || topicSlug}${summary.grade ? `?grade=${summary.grade}` : ""}`;
   const mistakes = summary.questions.filter((question) => !question.isCorrect).length;
+  const band = resultBand(summary.percentage);
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div className="rounded-3xl border border-line bg-white p-8 text-center">
         <p className="text-sm font-semibold text-brand">{summary.topicName} · Grade {summary.grade}</p>
         <p className="mt-4 font-mono text-6xl font-semibold">{summary.percentage}%</p>
+        <div className="mt-4 flex justify-center">
+          <Badge tone={band.tone}>{band.label}</Badge>
+        </div>
         <p className="mt-3 text-muted">
           You scored {summary.score} of {summary.totalMarks} marks · {summary.correct} of {summary.totalQuestions} correct
           {mistakes > 0 ? ` · ${mistakes} to review` : ""}.
         </p>
+      </div>
+
+      <div className="rounded-2xl border border-line bg-white p-6">
+        <h2 className="text-lg font-semibold">Your next step</h2>
+        <p className="mt-2 text-sm leading-6 text-muted">{buildPracticeRecommendation(summary)}</p>
       </div>
 
       <section>
@@ -84,13 +101,10 @@ export default async function PracticeResultPage({
                   Correct answer: <span className="font-mono font-semibold text-foreground">{question.correctAnswer}</span>
                 </p>
               )}
-              {question.explanation.length > 0 && (
-                <ol className="mt-3 list-inside list-decimal space-y-1 text-sm text-muted">
-                  {question.explanation.map((step, stepIndex) => (
-                    <li key={stepIndex}>{step}</li>
-                  ))}
-                </ol>
-              )}
+              <div className="mt-3 text-muted">
+                <p className="text-sm font-semibold text-foreground">Worked steps</p>
+                <WorkedSteps steps={question.explanation} className="mt-1" />
+              </div>
             </div>
           ))}
         </div>
@@ -105,6 +119,9 @@ export default async function PracticeResultPage({
         </Link>
         <Link href="/learner/topics" className="rounded-xl border border-line px-5 py-3 font-semibold hover:border-brand/40">
           Browse topics
+        </Link>
+        <Link href="/learner/progress" className="rounded-xl border border-line px-5 py-3 font-semibold hover:border-brand/40">
+          View progress
         </Link>
       </div>
     </div>

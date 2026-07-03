@@ -134,7 +134,9 @@ export default async function TopicPracticePage({
     difficulty: question.difficulty,
     marks: question.marks,
     topicName: question.topicName,
+    grade: question.grade,
     answerText: question.answer_text,
+    hint: question.hint,
     explanation: explanationFor(question),
   }));
 

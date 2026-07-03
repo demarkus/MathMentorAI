@@ -148,14 +148,30 @@ export function gradeDiagnostic(
   return { summary, graded };
 }
 
-/** A short, plain-language recommendation derived from the summary. */
+/** The weakest attempted topic (lowest accuracy), or null when none exist. */
+export function weakestTopic(summary: DiagnosticSummary): TopicBreakdown | null {
+  const attempted = summary.topics.filter((topic) => topic.total > 0);
+  if (attempted.length === 0) return null;
+  return [...attempted].sort((a, b) => a.percentage - b.percentage)[0];
+}
+
+/**
+ * A short, plain-language next step derived from the summary. Simple and
+ * transparent: weakest topic first; then band-based guidance for strong or
+ * low scores; otherwise steady mixed practice.
+ */
 export function buildRecommendation(summary: DiagnosticSummary): string {
   if (summary.totalQuestions === 0) return "Take the diagnostic to get personalised recommendations.";
-  if (summary.weakTopics.length === 0 && summary.percentage >= 80) {
-    return "Excellent work — keep your momentum with mixed practice across topics.";
+
+  const weakest = weakestTopic(summary);
+  if (summary.weakTopics.length > 0 && weakest) {
+    return `Start with focused practice on ${weakest.topic}, your weakest area right now. Use the hints and worked steps, then retake the diagnostic to measure your progress.`;
   }
-  if (summary.weakTopics.length > 0) {
-    return `Start with focused practice on ${summary.weakTopics.slice(0, 3).join(", ")}, then retake the diagnostic to measure your progress.`;
+  if (summary.percentage >= 80) {
+    return "Excellent work — keep your momentum with harder, mixed practice across topics.";
+  }
+  if (summary.percentage < 40) {
+    return "Take it one step at a time: work through the hints and worked solutions for each topic, then retry to build confidence.";
   }
   return "Keep practising across topics to strengthen your overall readiness.";
 }

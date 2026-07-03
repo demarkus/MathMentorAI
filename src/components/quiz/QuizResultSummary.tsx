@@ -1,18 +1,26 @@
 import Link from "next/link";
-import { buildRecommendation, type DiagnosticSummary } from "@/lib/math/diagnostic";
+import { buildRecommendation, weakestTopic, type DiagnosticSummary } from "@/lib/math/diagnostic";
+import { resultBand } from "@/lib/math/result-band";
+import { Badge } from "@/components/ui/Badge";
 
 /** Presentational diagnostic result: score, strengths, gaps, recommendations. */
 export function QuizResultSummary({ summary }: { summary: DiagnosticSummary }) {
   const { score, totalMarks, correct, totalQuestions, percentage, weakTopics, strongTopics, topics } = summary;
+  const band = resultBand(percentage);
+  const weakest = weakestTopic(summary);
 
   return (
     <div className="space-y-8">
       <div className="rounded-3xl border border-line bg-white p-8 text-center">
         <p className="text-sm font-semibold text-brand">Diagnostic complete</p>
         <p className="mt-4 font-mono text-6xl font-semibold">{percentage}%</p>
+        <div className="mt-4 flex justify-center">
+          <Badge tone={band.tone}>{band.label}</Badge>
+        </div>
         <p className="mt-3 text-muted">
           You scored {score} of {totalMarks} marks · {correct} of {totalQuestions} questions correct.
         </p>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">{band.message}</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -64,14 +72,29 @@ export function QuizResultSummary({ summary }: { summary: DiagnosticSummary }) {
       )}
 
       <div className="rounded-2xl border border-line bg-white p-6">
-        <h3 className="text-lg font-semibold">Recommendations</h3>
+        <h3 className="text-lg font-semibold">Your next step</h3>
         <p className="mt-3 text-sm leading-6 text-muted">{buildRecommendation(summary)}</p>
         <div className="mt-5 flex flex-wrap gap-3">
-          <Link href="/learner/practice" className="rounded-xl bg-brand px-5 py-3 font-semibold text-white hover:bg-brand-dark">
-            Start practice
-          </Link>
+          {weakest && weakest.slug ? (
+            <Link
+              href={`/learner/practice/${weakest.slug}`}
+              className="rounded-xl bg-brand px-5 py-3 font-semibold text-white hover:bg-brand-dark"
+            >
+              Practise {weakest.topic}
+            </Link>
+          ) : (
+            <Link href="/learner/practice" className="rounded-xl bg-brand px-5 py-3 font-semibold text-white hover:bg-brand-dark">
+              Start practice
+            </Link>
+          )}
           <Link href="/learner/topics" className="rounded-xl border border-line px-5 py-3 font-semibold hover:border-brand/40">
             Browse topics
+          </Link>
+          <Link href="/learner/progress" className="rounded-xl border border-line px-5 py-3 font-semibold hover:border-brand/40">
+            View progress
+          </Link>
+          <Link href="/learner/diagnostic" className="rounded-xl border border-line px-5 py-3 font-semibold hover:border-brand/40">
+            Retake diagnostic
           </Link>
         </div>
       </div>

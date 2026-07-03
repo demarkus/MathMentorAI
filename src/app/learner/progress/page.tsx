@@ -99,26 +99,32 @@ function ProgressView({ progress }: { progress: LearnerProgress }) {
       <section className="grid gap-4 sm:grid-cols-2">
         <DashboardCard title="Strengths">
           {progress.strongTopics.length > 0 ? (
-            <ul className="space-y-1">
-              {progress.strongTopics.slice(0, 5).map((topic) => (
-                <li key={topic.topicId}>
-                  ✓ {topic.topic} <span className="font-mono text-xs">({topic.percentage}%)</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-brand">Good progress</p>
+              <ul className="space-y-1">
+                {progress.strongTopics.slice(0, 5).map((topic) => (
+                  <li key={topic.topicId}>
+                    ✓ {topic.topic} <span className="font-mono text-xs">({topic.percentage}%)</span>
+                  </li>
+                ))}
+              </ul>
+            </>
           ) : (
             "Keep practising to build clear strengths."
           )}
         </DashboardCard>
         <DashboardCard title="Focus areas">
           {progress.weakTopics.length > 0 ? (
-            <ul className="space-y-1">
-              {progress.weakTopics.slice(0, 5).map((topic) => (
-                <li key={topic.topicId}>
-                  • {topic.topic} <span className="font-mono text-xs">({topic.percentage}%)</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700">Focus here next</p>
+              <ul className="space-y-1">
+                {progress.weakTopics.slice(0, 5).map((topic) => (
+                  <li key={topic.topicId}>
+                    • {topic.topic} <span className="font-mono text-xs">({topic.percentage}%)</span>
+                  </li>
+                ))}
+              </ul>
+            </>
           ) : (
             "No major gaps yet — nice work!"
           )}

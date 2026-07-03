@@ -1,12 +1,26 @@
 -- Math Mentor AI seed data
--- Run after supabase/schema.sql.
+--
+-- Run AFTER applying the migrations in supabase/migrations/ (not schema.sql,
+-- which is a reference copy only). This file loads the full CAPS content:
+-- 14 topics (7 per grade) and 108 questions.
+--
+-- IMPORTANT — clear the baseline first for a clean result. The initial
+-- migration (20260630012144) already seeds a smaller baseline (9 topics /
+-- 30 questions) using different notation (e.g. x²), so the duplicate guard
+-- below only skips exact text matches. To end up with exactly 14 topics /
+-- 108 questions (no near-duplicates), run this on the baseline once, before
+-- any learner data exists:
+--     delete from public.questions;
+--     delete from public.topics;
+-- then run this file.
+--
 -- Do not seed profiles here because profiles depend on auth.users.
 --
 -- Safe to re-run:
 --   * topics upsert on their (grade, slug) unique key.
 --   * questions are looked up by grade + slug (never hardcoded UUIDs) and only
 --     inserted when an identical question_text is not already present for that
---     topic, so re-running does not create duplicates.
+--     topic, so re-running does not create duplicate rows of the same text.
 --
 -- Questions use the current schema columns only: topic_id, grade, question_text,
 -- answer_text, hint, solution_steps (jsonb array), difficulty, marks, is_active.

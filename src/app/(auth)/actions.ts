@@ -6,12 +6,16 @@ import type { Role } from "@/lib/types";
 
 // The sign-up form offers app-facing role labels. "learner" is stored as the
 // "student" value defined by the public.user_role enum; the rest map directly.
-const ROLE_MAP: Record<string, Role> = {
+//
+// Security: the public form must NOT be able to self-assign "admin" — that role
+// grants question-bank management via the service-role client. Admins are
+// provisioned out-of-band (directly in the database), so "admin" is deliberately
+// absent here and any admin (or unknown) value falls back to "student".
+const PUBLIC_SIGNUP_ROLES: Record<string, Role> = {
   learner: "student",
   student: "student",
   parent: "parent",
   teacher: "teacher",
-  admin: "admin",
 };
 
 export async function login(formData: FormData) {
@@ -28,7 +32,7 @@ export async function signup(formData: FormData) {
   const email = String(formData.get("email"));
   const password = String(formData.get("password"));
   const fullName = String(formData.get("fullName"));
-  const role = ROLE_MAP[String(formData.get("role") || "learner")] ?? "student";
+  const role = PUBLIC_SIGNUP_ROLES[String(formData.get("role") || "learner")] ?? "student";
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
