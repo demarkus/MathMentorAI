@@ -121,7 +121,9 @@ requires).
 
 - **Covered:** `check-answer` (grading + `x = 5`↔`5` equivalence and its
   documented limits), `answer-format`, `result-band`, `progress` (topic
-  performance, weak/strong topics, recommendations, averages).
+  performance, weak/strong topics, recommendations, averages),
+  `teacher-resources` (generator input validation + question selection), and
+  `marketing/plans` (beta-lead plan/role validators).
 - **Not yet covered:** `diagnostic` and `practice` import a sibling module with
   an extensionless specifier, which Node's ESM resolver can't load without a
   bundler; unit-testing them needs a runner/loader and is deferred. Auth/role
