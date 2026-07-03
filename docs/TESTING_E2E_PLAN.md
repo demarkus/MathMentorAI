@@ -39,9 +39,23 @@ email-confirmation stays on.
 
 First run only: install the browser with `pnpm exec playwright install chromium`.
 
-### Layer 3 — CI — **not started**
-A GitHub Actions workflow (none exists today) running unit tests on every push,
-and the gated integration/e2e suites when the test-project secrets are configured.
+### Layer 3 — CI — **implemented**
+`.github/workflows/ci.yml` runs on every push to `main`, on every pull request,
+and on manual dispatch (Node 22, pnpm 10):
+
+- **test** job: `pnpm install --frozen-lockfile` → `lint` → `build` → `test`
+  (unit) → `test:integration` (skips unless the `INTEGRATION_SUPABASE_*` repo
+  secrets are set).
+- **e2e** job: installs Chromium (`--with-deps`) → `test:e2e` (marketing +
+  routing/protection run with the placeholder backend, no secrets needed; auth
+  journeys run when `E2E_SUPABASE_*` secrets are set). Playwright traces are
+  uploaded as an artifact on failure.
+
+**Optional repo secrets** (Settings → Secrets and variables → Actions) to run the
+gated suites against a dedicated test project: `INTEGRATION_SUPABASE_URL`,
+`INTEGRATION_SUPABASE_ANON_KEY`, `INTEGRATION_SUPABASE_SERVICE_ROLE_KEY` and the
+`E2E_SUPABASE_*` equivalents. Without them, CI is still green — the gated suites
+skip.
 
 ## Running the integration suite
 
@@ -68,4 +82,4 @@ creates uniquely-named users and cleans them up in `afterAll`.
 | Integration / RLS (Phase 1 + 1b) | ✅ Implemented, gated (needs a test project to execute) |
 | E2E Phase 2a (marketing + routing/protection) | ✅ Implemented & passing (placeholder backend) |
 | E2E Phase 2b (auth journeys) | ⬜ Planned (needs a test project) |
-| CI workflow | ⬜ Planned |
+| CI workflow (GitHub Actions) | ✅ Implemented (lint/build/unit/e2e on every push + PR) |
