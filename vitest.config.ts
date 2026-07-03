@@ -11,7 +11,9 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["tests/**/*.test.ts"],
+    // Unit tests only (top-level tests/). Integration tests under
+    // tests/integration/ have their own config (vitest.integration.config.ts).
+    include: ["tests/*.test.ts"],
     environment: "node",
   },
 });

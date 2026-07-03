@@ -125,9 +125,15 @@ excluded from the app `tsconfig`/lint; the `@` path alias is mirrored in
   `marketing/plans` (beta-lead plan/role validators), and `require-role`
   (role→redirect access decisions incl. the learner→`student` mapping, with
   `getCurrentUser` and `next/navigation` mocked).
-- **Not yet covered:** database-backed server actions and RLS behaviour, which
-  need an integration/e2e harness. The manual checklist in
-  `docs/BETA_SMOKE_TEST.md` covers those flows in the meantime.
+**Integration / RLS tests** (`pnpm test:integration`) run the `tests/integration/`
+suite against a **dedicated, non-production** Supabase project. They are gated on
+`INTEGRATION_SUPABASE_*` env vars and **skip** when absent, so the unit run stays
+offline. They assert the RLS boundaries the unit suite can't (owner-scoping,
+admin visibility, `beta_leads` public-insert / no-public-read). Setup and the full
+layered plan (Playwright E2E + CI are still planned) are in
+[docs/TESTING_E2E_PLAN.md](docs/TESTING_E2E_PLAN.md).
+
+- **Still manual:** end-to-end browser journeys — see `docs/BETA_SMOKE_TEST.md`.
 
 ---
 
