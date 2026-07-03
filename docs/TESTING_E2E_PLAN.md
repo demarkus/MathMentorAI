@@ -77,6 +77,37 @@ Without these, the suite **skips** (0 failures). It uses distinct env var names
 can never accidentally run against the app's normal/production project. Each run
 creates uniquely-named users and cleans them up in `afterAll`.
 
+## Activating the gated suites in CI
+
+The RLS integration and auth E2E suites skip until a **dedicated, non-production**
+test Supabase project is wired up. One project serves both suites.
+
+1. **Create a test project** (separate from prod — these tests create and delete
+   users and rows). Enable Email auth (Authentication → Providers → Email).
+2. **Apply the schema + seed** to it: run the migrations in `supabase/migrations/`
+   in filename order, then the clear-baseline + `supabase/seed.sql` step (see
+   [DEPLOYMENT.md](DEPLOYMENT.md) §3). Seed is recommended so public-content and
+   diagnostic screens have real data.
+3. **Copy the three keys** from Project Settings → API: Project URL, anon key,
+   service_role key (the service_role key bypasses RLS — keep it secret-only).
+4. **Add 6 repo secrets** (Settings → Secrets and variables → Actions, or
+   `gh secret set <NAME>`). Both suites use the same three values:
+
+   | Secret | Value |
+   |--------|-------|
+   | `INTEGRATION_SUPABASE_URL` / `E2E_SUPABASE_URL` | Project URL |
+   | `INTEGRATION_SUPABASE_ANON_KEY` / `E2E_SUPABASE_ANON_KEY` | anon key |
+   | `INTEGRATION_SUPABASE_SERVICE_ROLE_KEY` / `E2E_SUPABASE_SERVICE_ROLE_KEY` | service_role key |
+
+5. **Trigger a run:** `gh workflow run ci.yml` (or push a commit). The 8 RLS
+   tests and 4 auth journeys now **execute** instead of skipping.
+
+To run locally instead, `export` the same three values under both the
+`INTEGRATION_*` and `E2E_*` names, then `pnpm test:integration` / `pnpm test:e2e`.
+
+Cautions: **never point these at production**; fork PRs don't receive secrets
+(GitHub security), so the gated suites only run on same-repo branches/PRs.
+
 ## Status
 
 | Layer | State |
