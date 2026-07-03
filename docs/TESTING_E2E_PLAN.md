@@ -21,12 +21,23 @@ hidden); `teacher_resources` owner-only + admin-read-all; `beta_leads`
 public-insert / no-public-read / admin-read. Fixtures (a throwaway topic +
 active/inactive questions) are created and torn down per run.
 
-### Layer 2 — E2E (Playwright) — **not started**
-Drive the built app in a browser against the test project. Auth handled by
-pre-provisioned confirmed users (so production email-confirmation stays on).
-Journeys mirror [BETA_SMOKE_TEST.md](BETA_SMOKE_TEST.md): public marketing, auth
-+ onboarding→diagnostic, learner core loop, teacher generator, admin CRUD, parent
-placeholders. Adds `@playwright/test` + browser binaries and a `test:e2e` script.
+### Layer 2 — E2E (Playwright)
+
+**Phase 2a — implemented & runnable (no backend needed).** `pnpm test:e2e`
+(`e2e/`, config in `playwright.config.ts`) drives real Chromium against the app,
+which is booted with **placeholder Supabase env** so it never touches a real
+project. Covered: public marketing (landing hero + CTAs, pricing→`/beta?plan=`,
+beta plan preselect + required-field validation) and routing/protection
+(unauthenticated protected routes → sign-in; legacy `/login`, `/signup`,
+`/practice` redirects). No writes — read-only navigation only.
+
+**Phase 2b — auth journeys (planned, gated).** Sign-in → onboarding→diagnostic,
+learner core loop, teacher generator, admin CRUD. These need a dedicated test
+project: set `E2E_SUPABASE_*` (the config passes them to the server) and
+pre-provision confirmed users via the service-role admin API, so production
+email-confirmation stays on.
+
+First run only: install the browser with `pnpm exec playwright install chromium`.
 
 ### Layer 3 — CI — **not started**
 A GitHub Actions workflow (none exists today) running unit tests on every push,
@@ -55,5 +66,6 @@ creates uniquely-named users and cleans them up in `afterAll`.
 |-------|-------|
 | Unit (Vitest) | ✅ 63 tests |
 | Integration / RLS (Phase 1 + 1b) | ✅ Implemented, gated (needs a test project to execute) |
-| E2E (Playwright) | ⬜ Planned |
+| E2E Phase 2a (marketing + routing/protection) | ✅ Implemented & passing (placeholder backend) |
+| E2E Phase 2b (auth journeys) | ⬜ Planned (needs a test project) |
 | CI workflow | ⬜ Planned |

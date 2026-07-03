@@ -133,7 +133,10 @@ admin visibility, `beta_leads` public-insert / no-public-read). Setup and the fu
 layered plan (Playwright E2E + CI are still planned) are in
 [docs/TESTING_E2E_PLAN.md](docs/TESTING_E2E_PLAN.md).
 
-- **Still manual:** end-to-end browser journeys — see `docs/BETA_SMOKE_TEST.md`.
+**E2E tests** (`pnpm test:e2e`, Playwright) drive real Chromium against the app.
+The marketing + routing/protection journeys run with a placeholder backend (no
+real project needed); auth journeys are planned and gated on a test project. First
+run: `pnpm exec playwright install chromium`. See [docs/TESTING_E2E_PLAN.md](docs/TESTING_E2E_PLAN.md).
 
 ---
 

@@ -12,9 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Node built-in test runner files use .ts-extension imports and are excluded
-    // from the app tsconfig, so keep them out of the app's typed lint pass too.
+    // Test files (Vitest + Playwright) are excluded from the app tsconfig, so
+    // keep them out of the app's typed lint pass too.
     "tests/**",
+    "e2e/**",
   ]),
 ]);
 
