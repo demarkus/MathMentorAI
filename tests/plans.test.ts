@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { PLANS, BETA_ROLES, isPlanId, isBetaRole, planName } from "../src/lib/marketing/plans.ts";
 

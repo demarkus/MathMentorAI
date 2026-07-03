@@ -106,28 +106,28 @@ pnpm install
 pnpm dev      # start the dev server on http://localhost:3000
 pnpm lint     # eslint
 pnpm build    # production build
-pnpm test     # unit tests (Node built-in runner, no extra deps)
+pnpm test     # unit tests (Vitest)
 ```
 
 Authentication and persistence require a configured Supabase project (see below).
 
 ### Testing
 
-Unit tests cover the pure, deterministic learning logic and run on **Node's
-built-in test runner** with native TypeScript type-stripping — **no test-runner
-dependency is installed**. Tests live in `tests/` and are excluded from the app
-`tsconfig`/lint (they use `.ts`-extension imports that Node's ESM resolver
-requires).
+Unit tests run on **Vitest** (`pnpm test`). Tests live in `tests/` and are
+excluded from the app `tsconfig`/lint; the `@` path alias is mirrored in
+`vitest.config.ts` so tests import source modules the way the app does.
 
 - **Covered:** `check-answer` (grading + `x = 5`↔`5` equivalence and its
   documented limits), `answer-format`, `result-band`, `progress` (topic
-  performance, weak/strong topics, recommendations, averages),
-  `teacher-resources` (generator input validation + question selection), and
-  `marketing/plans` (beta-lead plan/role validators).
-- **Not yet covered:** `diagnostic` and `practice` import a sibling module with
-  an extensionless specifier, which Node's ESM resolver can't load without a
-  bundler; unit-testing them needs a runner/loader and is deferred. Auth/role
-  and RLS smoke tests are also still open (see `docs/BETA_SMOKE_TEST.md`).
+  performance, weak/strong topics, recommendations, averages), `diagnostic` and
+  `practice` (selection, grading, recommendations, summary encode/decode),
+  `teacher-resources` (generator input validation + question selection),
+  `marketing/plans` (beta-lead plan/role validators), and `require-role`
+  (role→redirect access decisions incl. the learner→`student` mapping, with
+  `getCurrentUser` and `next/navigation` mocked).
+- **Not yet covered:** database-backed server actions and RLS behaviour, which
+  need an integration/e2e harness. The manual checklist in
+  `docs/BETA_SMOKE_TEST.md` covers those flows in the meantime.
 
 ---
 

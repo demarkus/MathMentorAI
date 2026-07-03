@@ -13,7 +13,7 @@ Quality gates:
 ```bash
 pnpm lint
 pnpm build
-pnpm test    # unit tests for the deterministic learning logic (Node built-in runner)
+pnpm test    # unit tests (Vitest) — deterministic logic + auth/role guard
 ```
 
 ## 2. Supabase setup
