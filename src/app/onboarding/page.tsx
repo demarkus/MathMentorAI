@@ -12,7 +12,9 @@ export default async function Onboarding({ searchParams }: { searchParams: Promi
     <main className="mx-auto max-w-3xl px-5 py-16">
       <p className="text-sm font-semibold text-brand">One quick step</p>
       <h1 className="mt-2 text-4xl font-semibold tracking-tight">How will you use Math Mentor?</h1>
-      <p className="mt-3 text-muted">Choose your role. Learners can also select their current grade.</p>
+      <p className="mt-3 text-muted">
+        Choose your role. Learners set their grade and start with a short diagnostic to map their strengths.
+      </p>
       {error && <p className="mt-5 rounded-xl bg-red-50 p-3 text-red-700">{error}</p>}
       <form action={saveProfile} className="mt-9">
         <div className="grid gap-4 md:grid-cols-3">
@@ -28,7 +30,7 @@ export default async function Onboarding({ searchParams }: { searchParams: Promi
         <label className="mt-6 block max-w-xs text-sm font-medium">Learner grade
           <select name="grade" className="mt-2 w-full rounded-xl border border-line bg-white px-4 py-3"><option value="9">Grade 9</option><option value="10">Grade 10</option></select>
         </label>
-        <button className="mt-8 rounded-xl bg-brand px-6 py-3.5 font-semibold text-white hover:bg-brand-dark">Continue to dashboard</button>
+        <button className="mt-8 rounded-xl bg-brand px-6 py-3.5 font-semibold text-white hover:bg-brand-dark">Continue</button>
       </form>
     </main>
   );

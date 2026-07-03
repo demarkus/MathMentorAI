@@ -26,6 +26,11 @@ export async function saveProfile(formData: FormData) {
   if (role === "student") {
     const { error: learnerError } = await supabase.from("learner_profiles").upsert({ user_id: userId, grade });
     if (learnerError) redirect(`/onboarding?error=${encodeURIComponent(learnerError.message)}`);
+    // Onboarding guidance: start a new learner with the diagnostic. Its result
+    // page then points them at the recommended first practice set. The diagnostic
+    // page degrades gracefully to a "back to dashboard" message if no questions
+    // exist yet, so this is safe even before content is seeded.
+    redirect("/learner/diagnostic");
   }
   redirect("/dashboard");
 }

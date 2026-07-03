@@ -106,9 +106,26 @@ pnpm install
 pnpm dev      # start the dev server on http://localhost:3000
 pnpm lint     # eslint
 pnpm build    # production build
+pnpm test     # unit tests (Node built-in runner, no extra deps)
 ```
 
 Authentication and persistence require a configured Supabase project (see below).
+
+### Testing
+
+Unit tests cover the pure, deterministic learning logic and run on **Node's
+built-in test runner** with native TypeScript type-stripping — **no test-runner
+dependency is installed**. Tests live in `tests/` and are excluded from the app
+`tsconfig`/lint (they use `.ts`-extension imports that Node's ESM resolver
+requires).
+
+- **Covered:** `check-answer` (grading + `x = 5`↔`5` equivalence and its
+  documented limits), `answer-format`, `result-band`, `progress` (topic
+  performance, weak/strong topics, recommendations, averages).
+- **Not yet covered:** `diagnostic` and `practice` import a sibling module with
+  an extensionless specifier, which Node's ESM resolver can't load without a
+  bundler; unit-testing them needs a runner/loader and is deferred. Auth/role
+  and RLS smoke tests are also still open (see `docs/BETA_SMOKE_TEST.md`).
 
 ---
 

@@ -42,7 +42,7 @@ RLS is enabled on all tables; policies are owner-scoped. See [DATABASE.md](DATAB
 ## Known limitations / residual risks
 
 - **Best-effort persistence uses the service-role client** (quiz sessions, reports, teacher resources, profile provisioning). It bypasses RLS, so its safety depends on the surrounding `requireRole(...)` checks and server-derived ownership (`learner_profiles.user_id = session user`, `teacher_id = session user`). These checks are in place; keep them if refactoring.
-- **No server-side idempotency on quiz submission** — a double-submit could create duplicate `quiz_sessions`/`attempts`/`reports`. Client pending-state mitigates; a dedupe key is future hardening.
+- **No server-side idempotency on quiz submission** — a cross-request double-submit (back-button/retry) could create duplicate `quiz_sessions`/`attempts`/`reports`. The client blocks *concurrent* same-tick submits with a synchronous ref guard (`QuizShell`); a DB-level dedupe key (schema change) is future hardening.
 - **Parent linking is unbuilt** — do **not** add learner queries to the parent routes until a secure, learner-confirmed linking mechanism exists.
 - **No automated security tests** — add auth/role and RLS smoke tests before major changes.
 
