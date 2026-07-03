@@ -31,11 +31,14 @@ beta plan preselect + required-field validation) and routing/protection
 (unauthenticated protected routes → sign-in; legacy `/login`, `/signup`,
 `/practice` redirects). No writes — read-only navigation only.
 
-**Phase 2b — auth journeys (planned, gated).** Sign-in → onboarding→diagnostic,
-learner core loop, teacher generator, admin CRUD. These need a dedicated test
-project: set `E2E_SUPABASE_*` (the config passes them to the server) and
-pre-provision confirmed users via the service-role admin API, so production
-email-confirmation stays on.
+**Phase 2b — auth journeys (implemented, gated).** `e2e/auth.spec.ts` (+
+`e2e/support/supabase.ts`) covers: a learner signs in → learner dashboard; a
+new user completes onboarding → routed into the diagnostic; wrong-role access is
+redirected; sign-out clears the session. Users are pre-provisioned CONFIRMED via
+the service-role admin API (so production email-confirmation stays on) and torn
+down after each test. Gated on `E2E_SUPABASE_*` (the config also passes them to
+the app server); skips otherwise. **Not yet executed against a live project** —
+verified to collect and skip; run it by setting `E2E_SUPABASE_*`.
 
 First run only: install the browser with `pnpm exec playwright install chromium`.
 
@@ -81,5 +84,5 @@ creates uniquely-named users and cleans them up in `afterAll`.
 | Unit (Vitest) | ✅ 63 tests |
 | Integration / RLS (Phase 1 + 1b) | ✅ Implemented, gated (needs a test project to execute) |
 | E2E Phase 2a (marketing + routing/protection) | ✅ Implemented & passing (placeholder backend) |
-| E2E Phase 2b (auth journeys) | ⬜ Planned (needs a test project) |
+| E2E Phase 2b (auth journeys) | ✅ Implemented, gated (needs a test project to execute) |
 | CI workflow (GitHub Actions) | ✅ Implemented (lint/build/unit/e2e on every push + PR) |
