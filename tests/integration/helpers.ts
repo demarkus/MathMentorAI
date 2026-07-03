@@ -94,3 +94,51 @@ export async function deleteTestUsers(...users: (TestUser | undefined)[]): Promi
     if (user) await svc.auth.admin.deleteUser(user.id).catch(() => undefined);
   }
 }
+
+/** Creates a throwaway topic (service-role). Unique slug to avoid collisions. */
+export async function createFixtureTopic(): Promise<{ id: string }> {
+  const svc = serviceClient();
+  seq += 1;
+  const { data, error } = await svc
+    .from("topics")
+    .insert({
+      grade: 9,
+      name: "IT Fixture Topic",
+      slug: `it-topic-${Date.now()}-${seq}`,
+      description: "integration fixture",
+      display_order: 999,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(`topic insert failed: ${error?.message}`);
+  return { id: (data as { id: string }).id };
+}
+
+/** Creates a question under a topic (service-role); `isActive` drives RLS visibility. */
+export async function createFixtureQuestion(topicId: string, isActive: boolean): Promise<{ id: string }> {
+  const svc = serviceClient();
+  const { data, error } = await svc
+    .from("questions")
+    .insert({
+      topic_id: topicId,
+      grade: 9,
+      question_text: "Fixture: 1 + 1",
+      answer_text: "2",
+      hint: "add them",
+      solution_steps: ["1 + 1 = 2"],
+      difficulty: "easy",
+      marks: 1,
+      is_active: isActive,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(`question insert failed: ${error?.message}`);
+  return { id: (data as { id: string }).id };
+}
+
+/** Best-effort fixture teardown — deleting a topic cascades to its questions. */
+export async function deleteFixtureTopic(id: string | undefined): Promise<void> {
+  if (!id) return;
+  const svc = serviceClient();
+  await svc.from("topics").delete().eq("id", id);
+}

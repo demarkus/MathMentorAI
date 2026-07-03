@@ -15,13 +15,11 @@ asserted with anon-key clients carrying each user's JWT.
 - **Gated:** skips unless `INTEGRATION_SUPABASE_*` env vars are set (see below),
   so the offline `pnpm test` unit run never touches the network.
 
-Covered so far: `profiles`, `learner_profiles`, `quiz_sessions` owner-scoping;
-`teacher_resources` owner-only + admin-read-all; `beta_leads` public-insert /
-no-public-read / admin-read.
-
-Phase 1b follow-ups (same pattern): `attempts` and `reports` owner-scoping;
-`topics` + **active** `questions` public read while **inactive** questions stay
-hidden.
+Covered: `profiles`, `learner_profiles`, `quiz_sessions`, `attempts`, `reports`
+owner-scoping; `topics` public read + **active**-only `questions` (inactive stay
+hidden); `teacher_resources` owner-only + admin-read-all; `beta_leads`
+public-insert / no-public-read / admin-read. Fixtures (a throwaway topic +
+active/inactive questions) are created and torn down per run.
 
 ### Layer 2 — E2E (Playwright) — **not started**
 Drive the built app in a browser against the test project. Auth handled by
@@ -56,7 +54,6 @@ creates uniquely-named users and cleans them up in `afterAll`.
 | Layer | State |
 |-------|-------|
 | Unit (Vitest) | ✅ 63 tests |
-| Integration / RLS (Phase 1) | ✅ Implemented, gated (needs a test project to execute) |
-| Integration Phase 1b (attempts/reports/public-read) | ⬜ Planned |
+| Integration / RLS (Phase 1 + 1b) | ✅ Implemented, gated (needs a test project to execute) |
 | E2E (Playwright) | ⬜ Planned |
 | CI workflow | ⬜ Planned |
