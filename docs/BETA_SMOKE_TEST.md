@@ -19,6 +19,7 @@ Legend: **Route** → **Expected result**.
 - [ ] After sign-up, a `profiles` row exists with the correct role (learner stored as `student`).
 - [ ] Email-confirmation path: if confirmation is on, user is sent to sign-in with a "check your email" message; `/auth/callback?code=…` exchanges the code and lands on `/dashboard`.
 - [ ] `/dashboard` → redirects by role: student→`/learner`, parent→`/parent`, teacher→`/teacher`, admin→`/admin`; no role→`/onboarding`.
+- [ ] **Onboarding flow:** completing `/onboarding` as a **learner** saves role+grade and lands on `/learner/diagnostic` (new-learner guidance); **parent/teacher** land on `/dashboard`. If no questions are seeded, the diagnostic shows a graceful "back to dashboard" message.
 - [ ] `/auth/sign-out` → session cleared, redirected to sign-in.
 - [ ] Legacy redirects: `/login`→`/auth/sign-in`, `/signup`→`/auth/sign-up`, `/practice`→`/learner/practice`, `/auth/signout`→`/auth/sign-out`.
 - [ ] Unauthenticated access to `/learner`, `/parent`, `/teacher`, `/admin` → redirected to sign-in.
@@ -92,14 +93,15 @@ from public.beta_leads order by created_at desc limit 5;
 - **Parent–learner linking is unbuilt** — parent reports are placeholders by design.
 - **Diagnostic result shows no per-question review** — correct answers are never sent to the client for the diagnostic; per-question review is practice-only.
 - **Answer checking is string-based** (with limited `x = 5` ↔ `5` tolerance) — mathematically-equivalent-but-differently-written answers may be marked incorrect. No AI marking.
-- **No server-side idempotency on quiz submit** — a double-submit could duplicate a session/attempts/report; client pending-state mitigates.
+- **No server-side idempotency on quiz submit** — the client now blocks *concurrent* double-submits with a synchronous ref guard (`QuizShell`), but a cross-request resubmit (back-button/retry after redirect) could still duplicate a session/attempts/report. A DB-level dedup key would need a schema change and is deferred.
 - **Best-effort persistence uses the service-role client** — safe only because it is always preceded by `requireRole(...)` and server-derived ownership.
 
 ## Beta blocker list
 - [x] **Public sign-up could self-assign the `admin` role** (privilege escalation to question-bank CRUD). **Fixed** — admin removed from the sign-up form and rejected server-side (`PUBLIC_SIGNUP_ROLES` falls back to `student`).
 
 ## Non-blocking follow-ups
-- Add `required`/inline client validation on the beta form for faster feedback (server validation already blocks bad input).
-- Add a dedup key for quiz submissions to guard against double-submits.
-- Build secure parent–learner linking, then populate the parent report components.
-- Add auth/role and RLS smoke tests to lock in the access model.
+- [x] **Beta-form client validation** — name + email now use native `required` (with `aria-required`) for instant feedback; server validation remains authoritative. *(BetaLeadForm.tsx)*
+- [x] **Quiz-submit concurrent-double-submit guard** — `QuizShell` uses a synchronous `useRef` guard so same-tick submits can't fire `onSubmit` twice. *(QuizShell.tsx)*
+- [ ] **Cross-request quiz-submit idempotency** — deferred; needs a schema-level dedup key (out of scope for the no-schema-change rule).
+- [~] **Automated tests — expanded.** Vitest unit suite (`pnpm test`), 63 tests. Plus a gated **RLS integration suite** (`pnpm test:integration`, `tests/integration/`) that runs against a dedicated test Supabase project — see [TESTING_E2E_PLAN.md](TESTING_E2E_PLAN.md). *Remaining:* Phase 1b (attempts/reports/public-read), Playwright E2E, and CI (this manual checklist covers the browser journeys for now).
+- [ ] Build secure parent–learner linking, then populate the parent report components.

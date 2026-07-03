@@ -45,8 +45,8 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 - **AI hints/explanations** — explanations come from seeded `solution_steps`, not a model.
 - **Symbolic answer checking** — answers are matched with deterministic string normalisation, not a CAS.
 - **PDF export** — teacher resources print via the browser; no server-side PDF.
-- **Automated tests** — none yet.
-- **Production email templates** — Supabase defaults.
+- **Integration / e2e tests** — none yet (unit tests exist via Vitest; see the README).
+- **Installed production email templates** — branded HTML is provided in `supabase/templates/` ([EMAIL_TEMPLATES.md](EMAIL_TEMPLATES.md)); pasting it into the Supabase dashboard is still pending.
 - **Analytics / event tracking** — none.
 - **Full user administration** (managing learners/parents/teachers from the admin UI) — not built.
 
@@ -65,7 +65,7 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 | All migrations applied to the target DB | ⚠️ Required before beta |
 | Payment collection | ❌ Roadmap |
 | Parent–learner linking | ❌ Roadmap |
-| Automated tests | ❌ Roadmap |
-| Production email templates | ❌ Roadmap |
+| Automated tests | ⚠️ Unit tests (Vitest); integration/e2e pending |
+| Production email templates | ⚠️ Provided in `supabase/templates/`; install in dashboard |
 
 **Before inviting beta users:** apply all five migrations, run the seed, enable email/password auth, and complete the deployment smoke test in [DEPLOYMENT.md](DEPLOYMENT.md).

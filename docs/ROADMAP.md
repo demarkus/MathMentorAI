@@ -5,8 +5,8 @@ Sequenced from the current MVP toward a monetised beta. Items reflect the [curre
 ## Next 30 days — make the beta collectable
 
 - **Payment integration (PayFast or Yoco first, SA-friendly).** Wire real checkout to the existing `/pricing` plans; convert `beta_leads` interest into paid subscriptions.
-- **Beta onboarding flow.** Post-signup guidance that routes a new user into the diagnostic and first practice set.
-- **Production email templates.** Branded Supabase confirmation / password-reset emails.
+- **Beta onboarding flow.** _Started:_ completing onboarding as a learner now routes straight into the diagnostic, whose result page points to the recommended first practice set. _Remaining:_ a richer welcome/first-run walkthrough if desired.
+- **Production email templates.** _Started:_ branded confirm-signup + reset-password HTML in `supabase/templates/` ([EMAIL_TEMPLATES.md](EMAIL_TEMPLATES.md)). _Remaining:_ paste them into the Supabase dashboard and configure a custom SMTP sender for deliverability.
 - **Apply all migrations to the production database** and run the deployment smoke test.
 
 ## Next 60 days — parents and trust

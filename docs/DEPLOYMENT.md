@@ -13,6 +13,7 @@ Quality gates:
 ```bash
 pnpm lint
 pnpm build
+pnpm test    # unit tests (Vitest) — deterministic logic + auth/role guard
 ```
 
 ## 2. Supabase setup
@@ -25,6 +26,7 @@ pnpm build
    - `SUPABASE_SERVICE_ROLE_KEY` (server-only — do **not** prefix with `NEXT_PUBLIC_`)
 4. **Enable email/password auth:** Authentication → Providers → Email.
 5. Set **Site URL** to your app origin and add `<origin>/auth/callback` as a redirect URL (used for email confirmation).
+6. **Install the branded email templates** (Authentication → Emails) from `supabase/templates/` — see [EMAIL_TEMPLATES.md](EMAIL_TEMPLATES.md). Optional but recommended before inviting beta users; Supabase defaults are used otherwise.
 
 ## 3. Migrations & seed
 
@@ -116,7 +118,7 @@ After each deploy, verify:
 - [ ] `/` loads; header links to `/pricing` and `/beta`.
 - [ ] `/pricing` shows all five plans; a plan CTA deep-links to `/beta?plan=…`.
 - [ ] `/beta` submits successfully (creates a `beta_leads` row) and shows the success state; invalid input shows the error state.
-- [ ] Sign-up (learner) → email confirm (if enabled) → `/onboarding` → grade saved → `/learner`.
+- [ ] Sign-up (learner) → email confirm (if enabled) → `/onboarding` → grade saved → `/learner/diagnostic` (new-learner guidance; parent/teacher land on `/dashboard`).
 - [ ] Sign-in / sign-out work; unauthenticated access to `/learner`, `/teacher`, `/admin` redirects to sign-in.
 - [ ] Wrong-role access redirects to `/dashboard`.
 - [ ] Learner: run the **diagnostic** end-to-end; result page renders; `/learner/practice/<topic>` runs and shows results; `/learner/progress` shows data.

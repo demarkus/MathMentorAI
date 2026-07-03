@@ -106,9 +106,37 @@ pnpm install
 pnpm dev      # start the dev server on http://localhost:3000
 pnpm lint     # eslint
 pnpm build    # production build
+pnpm test     # unit tests (Vitest)
 ```
 
 Authentication and persistence require a configured Supabase project (see below).
+
+### Testing
+
+Unit tests run on **Vitest** (`pnpm test`). Tests live in `tests/` and are
+excluded from the app `tsconfig`/lint; the `@` path alias is mirrored in
+`vitest.config.ts` so tests import source modules the way the app does.
+
+- **Covered:** `check-answer` (grading + `x = 5`↔`5` equivalence and its
+  documented limits), `answer-format`, `result-band`, `progress` (topic
+  performance, weak/strong topics, recommendations, averages), `diagnostic` and
+  `practice` (selection, grading, recommendations, summary encode/decode),
+  `teacher-resources` (generator input validation + question selection),
+  `marketing/plans` (beta-lead plan/role validators), and `require-role`
+  (role→redirect access decisions incl. the learner→`student` mapping, with
+  `getCurrentUser` and `next/navigation` mocked).
+**Integration / RLS tests** (`pnpm test:integration`) run the `tests/integration/`
+suite against a **dedicated, non-production** Supabase project. They are gated on
+`INTEGRATION_SUPABASE_*` env vars and **skip** when absent, so the unit run stays
+offline. They assert the RLS boundaries the unit suite can't (owner-scoping,
+admin visibility, `beta_leads` public-insert / no-public-read). Setup and the full
+layered plan (Playwright E2E + CI are still planned) are in
+[docs/TESTING_E2E_PLAN.md](docs/TESTING_E2E_PLAN.md).
+
+**E2E tests** (`pnpm test:e2e`, Playwright) drive real Chromium against the app.
+The marketing + routing/protection journeys run with a placeholder backend (no
+real project needed); auth journeys are planned and gated on a test project. First
+run: `pnpm exec playwright install chromium`. See [docs/TESTING_E2E_PLAN.md](docs/TESTING_E2E_PLAN.md).
 
 ---
 
@@ -186,8 +214,8 @@ More detail: [docs/SECURITY_NOTES.md](docs/SECURITY_NOTES.md).
 - **No AI explanations** — hints and worked steps come from seeded `solution_steps`, not a model.
 - **Answer checking is deterministic/string-based** — `normalizeAnswer` (NFKC, whitespace/operator normalisation), not symbolic algebra.
 - **Some persistence depends on migrations** — `quiz_sessions`, `reports`, `attempts.quiz_session_id`, `teacher_resources`, and `beta_leads` require their migrations to be applied; the app degrades gracefully (encoded-summary fallbacks, placeholders) when they are absent.
-- **No production email templates** — Supabase default confirmation emails.
-- **No automated tests.**
+- **Email templates provided, install pending** — branded HTML lives in `supabase/templates/`; paste it into the Supabase dashboard ([docs/EMAIL_TEMPLATES.md](docs/EMAIL_TEMPLATES.md)). Supabase defaults are used until then.
+- **Tests are unit-level only** — Vitest (`pnpm test`) covers the deterministic logic and the auth/role guard; DB-backed server actions and RLS still rely on the manual smoke test.
 
 ---
 

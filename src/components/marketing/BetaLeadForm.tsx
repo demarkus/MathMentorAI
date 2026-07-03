@@ -63,11 +63,25 @@ export function BetaLeadForm({
     <form onSubmit={handleSubmit} className="rounded-3xl border border-line bg-white p-6 md:p-8">
       <div className="grid gap-5 sm:grid-cols-2">
         <Field label="Full name">
-          <Input type="text" value={fullName} onChange={(event) => setFullName(event.target.value)} />
+          <Input
+            type="text"
+            value={fullName}
+            onChange={(event) => setFullName(event.target.value)}
+            required
+            aria-required="true"
+            autoComplete="name"
+          />
         </Field>
 
         <Field label="Email">
-          <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          <Input
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            aria-required="true"
+            autoComplete="email"
+          />
         </Field>
 
         <Field label="Phone" hint="(optional)">

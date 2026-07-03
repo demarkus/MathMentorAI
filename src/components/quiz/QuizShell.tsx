@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { QuestionCard } from "./QuestionCard";
 import { AnswerInput } from "./AnswerInput";
 import { QuizProgress } from "./QuizProgress";
@@ -50,6 +50,12 @@ export function QuizShell({
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Synchronous guard: `saving` state updates asynchronously, so two submits in
+  // the same tick (e.g. Enter + click) could both pass a state-only check and
+  // fire onSubmit twice. This ref blocks concurrent submits deterministically.
+  // (Cross-request idempotency — back-button/retry — would need a schema-level
+  // dedup key, which is intentionally out of scope here.)
+  const submittingRef = useRef(false);
 
   const question = questions[index];
   const isLast = index === questions.length - 1;
@@ -73,7 +79,8 @@ export function QuizShell({
   }
 
   async function handleSubmit() {
-    if (saving) return; // guard against double submission
+    if (submittingRef.current || saving) return; // guard against double submission
+    submittingRef.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -85,10 +92,12 @@ export function QuizShell({
       if (result?.error) {
         setError(result.error);
         setSaving(false);
+        submittingRef.current = false;
       }
     } catch {
       setError("Something went wrong submitting your answers. Please try again.");
       setSaving(false);
+      submittingRef.current = false;
     }
   }
 
