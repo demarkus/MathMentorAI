@@ -205,8 +205,8 @@ More detail: [docs/SECURITY_NOTES.md](docs/SECURITY_NOTES.md).
 - **No AI explanations** — hints and worked steps come from seeded `solution_steps`, not a model.
 - **Answer checking is deterministic/string-based** — `normalizeAnswer` (NFKC, whitespace/operator normalisation), not symbolic algebra.
 - **Some persistence depends on migrations** — `quiz_sessions`, `reports`, `attempts.quiz_session_id`, `teacher_resources`, and `beta_leads` require their migrations to be applied; the app degrades gracefully (encoded-summary fallbacks, placeholders) when they are absent.
-- **No production email templates** — Supabase default confirmation emails.
-- **No automated tests.**
+- **Email templates provided, install pending** — branded HTML lives in `supabase/templates/`; paste it into the Supabase dashboard ([docs/EMAIL_TEMPLATES.md](docs/EMAIL_TEMPLATES.md)). Supabase defaults are used until then.
+- **Tests are unit-level only** — Vitest (`pnpm test`) covers the deterministic logic and the auth/role guard; DB-backed server actions and RLS still rely on the manual smoke test.
 
 ---
 

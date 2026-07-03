@@ -26,6 +26,7 @@ pnpm test    # unit tests (Vitest) — deterministic logic + auth/role guard
    - `SUPABASE_SERVICE_ROLE_KEY` (server-only — do **not** prefix with `NEXT_PUBLIC_`)
 4. **Enable email/password auth:** Authentication → Providers → Email.
 5. Set **Site URL** to your app origin and add `<origin>/auth/callback` as a redirect URL (used for email confirmation).
+6. **Install the branded email templates** (Authentication → Emails) from `supabase/templates/` — see [EMAIL_TEMPLATES.md](EMAIL_TEMPLATES.md). Optional but recommended before inviting beta users; Supabase defaults are used otherwise.
 
 ## 3. Migrations & seed
 
