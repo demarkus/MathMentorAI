@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { QuizShell, type QuizShellQuestion } from "@/components/quiz/QuizShell";
 import { selectDiagnosticQuestions, type DiagnosticQuestion } from "@/lib/math/diagnostic";
+import { startSession } from "@/lib/quiz/session";
 import { submitDiagnostic } from "./actions";
 
 type QuestionRow = {
@@ -16,9 +18,18 @@ type QuestionRow = {
 };
 
 export default async function DiagnosticPage() {
-  await requireRole("learner");
+  const user = await requireRole("learner");
 
   const supabase = await createClient();
+  const { data: learner } = await supabase
+    .from("learner_profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const learnerId = (learner as { id: string } | null)?.id;
+  if (!learnerId) redirect("/onboarding");
+  const admin = createServiceRoleClient();
+
   // No answer_text: the diagnostic never sends answers to the client, and answer
   // keys are not readable through the Data API. Grading reads them server-side.
   const { data } = await supabase
@@ -57,6 +68,28 @@ export default async function DiagnosticPage() {
     );
   }
 
+  // Persist the exact issued question set as a session; the client submits back
+  // against it and the server validates the set before marking.
+  const sessionId = admin
+    ? await startSession(admin, {
+        learnerId,
+        quizType: "diagnostic",
+        questionIds: selected.map((question) => question.id),
+      })
+    : null;
+  if (!sessionId) {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <p className="text-sm font-semibold text-brand">Diagnostic</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">We couldn’t start your diagnostic</h1>
+        <p className="mt-3 text-muted">Something went wrong preparing your diagnostic. Please try again in a moment.</p>
+        <Link href="/learner" className="mt-8 inline-flex rounded-xl bg-brand px-5 py-3 font-semibold text-white hover:bg-brand-dark">
+          Back to dashboard
+        </Link>
+      </div>
+    );
+  }
+
   // Correct answers are deliberately not sent to the client; the server action marks them.
   const quizQuestions: QuizShellQuestion[] = selected.map((question) => ({
     id: question.id,
@@ -77,7 +110,7 @@ export default async function DiagnosticPage() {
           between them, then submit when you’re ready.
         </p>
       </div>
-      <QuizShell questions={quizQuestions} onSubmit={submitDiagnostic} submitLabel="Submit diagnostic" />
+      <QuizShell questions={quizQuestions} onSubmit={submitDiagnostic.bind(null, sessionId)} submitLabel="Submit diagnostic" />
     </div>
   );
 }

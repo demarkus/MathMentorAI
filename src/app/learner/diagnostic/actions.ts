@@ -3,8 +3,8 @@
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
-import { gradeDiagnostic, encodeSummary, type DiagnosticQuestion } from "@/lib/math/diagnostic";
-import { createQuizSession, insertAttempts, createReport } from "@/lib/quiz/persistence";
+import { gradeDiagnostic, type DiagnosticQuestion } from "@/lib/math/diagnostic";
+import { loadSession, finalizeSession, submittedMatchesIssued } from "@/lib/quiz/session";
 import type { QuizAnswer } from "@/components/quiz/QuizShell";
 
 type QuestionRow = {
@@ -33,31 +33,18 @@ function toDiagnosticQuestion(row: QuestionRow): DiagnosticQuestion {
   };
 }
 
-export async function submitDiagnostic(answers: QuizAnswer[]): Promise<{ error?: string } | void> {
+/**
+ * Marks a diagnostic. `sessionId` is bound on the server; the client supplies
+ * only the answers and an idempotency key. Scoring reads the answer keys via the
+ * service role, and every write goes through the trusted finalize function.
+ */
+export async function submitDiagnostic(
+  sessionId: string,
+  answers: QuizAnswer[],
+  submissionKey: string,
+): Promise<{ error?: string } | void> {
   const user = await requireRole("learner");
   const supabase = await createClient();
-
-  const ids = answers.map((entry) => entry.questionId).filter(Boolean);
-  if (ids.length === 0) return { error: "No answers were submitted." };
-
-  // Answer keys are not readable through the Data API — mark server-side via the
-  // trusted service-role client.
-  const admin = createServiceRoleClient();
-  if (!admin) return { error: "We couldn’t mark your answers right now. Please try again." };
-
-  const { data, error } = await admin
-    .from("questions")
-    .select("id, grade, marks, difficulty, question_text, answer_text, topic_id, topics(name, slug)")
-    .in("id", ids)
-    .eq("is_active", true);
-
-  if (error) return { error: "We couldn’t load the questions to mark your answers. Please try again." };
-
-  const questions = ((data ?? []) as unknown as QuestionRow[]).map(toDiagnosticQuestion);
-  if (questions.length === 0) return { error: "These questions are no longer available." };
-
-  const answersById = new Map(answers.map((entry) => [entry.questionId, entry.answer]));
-  const { summary, graded } = gradeDiagnostic(questions, answersById);
 
   const { data: learner } = await supabase
     .from("learner_profiles")
@@ -65,23 +52,48 @@ export async function submitDiagnostic(answers: QuizAnswer[]): Promise<{ error?:
     .eq("user_id", user.id)
     .maybeSingle();
   const learnerId = (learner as { id: string } | null)?.id;
+  if (!learnerId) return { error: "We couldn’t find your learner profile. Please finish onboarding." };
 
-  // Without a learner profile we cannot persist; show the stateless result.
-  if (!learnerId) {
-    redirect(`/learner/diagnostic/result?data=${encodeSummary(summary)}`);
+  const admin = createServiceRoleClient();
+  if (!admin) return { error: "We couldn’t mark your answers right now. Please try again." };
+
+  const session = await loadSession(admin, String(sessionId ?? ""), learnerId);
+  if (!session || session.quizType !== "diagnostic") return { error: "This diagnostic session is no longer valid." };
+
+  const submittedIds = answers.map((entry) => entry.questionId);
+  if (!submittedMatchesIssued(submittedIds, session.questionIds)) {
+    return { error: "Your answers didn’t match this diagnostic. Please retake it." };
   }
 
-  const sessionId = await createQuizSession(learnerId, "diagnostic", summary);
+  // Fetch the issued questions (with answer keys) and reject any that are no
+  // longer active.
+  const { data, error } = await admin
+    .from("questions")
+    .select("id, grade, marks, difficulty, question_text, answer_text, topic_id, topics(name, slug)")
+    .in("id", session.questionIds)
+    .eq("is_active", true);
+  if (error) return { error: "We couldn’t load the questions to mark your answers. Please try again." };
 
-  const attemptsError = await insertAttempts(supabase, learnerId, graded, sessionId);
-  if (attemptsError) return { error: attemptsError };
+  const questions = ((data ?? []) as unknown as QuestionRow[]).map(toDiagnosticQuestion);
+  if (questions.length !== session.questionIds.length) {
+    return { error: "Some questions are no longer available. Please retake the diagnostic." };
+  }
 
-  const reportId = await createReport(learnerId, sessionId, "diagnostic", summary);
+  const answersById = new Map(answers.map((entry) => [entry.questionId, entry.answer]));
+  const { summary, graded } = gradeDiagnostic(questions, answersById);
 
-  // Prefer the durable DB-backed result; fall back to the encoded summary.
-  redirect(
-    reportId
-      ? `/learner/diagnostic/result?report=${reportId}`
-      : `/learner/diagnostic/result?data=${encodeSummary(summary)}`,
-  );
+  const reportId = await finalizeSession(admin, {
+    sessionId: session.id,
+    learnerId,
+    submissionKey: String(submissionKey ?? ""),
+    score: summary.score,
+    totalMarks: summary.totalMarks,
+    percentage: summary.percentage,
+    reportType: "diagnostic",
+    reportData: summary,
+    attempts: graded,
+  });
+  if (!reportId) return { error: "We couldn’t save your results. Please try again." };
+
+  redirect(`/learner/diagnostic/result?report=${reportId}`);
 }
