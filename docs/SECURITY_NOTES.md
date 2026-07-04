@@ -27,10 +27,10 @@ This documents the security model as it exists in the code today. It reflects th
 RLS is enabled on all tables; policies are owner-scoped. See [DATABASE.md](DATABASE.md#rls-overview) for the full matrix. Key rules:
 
 - `profiles` — read own row; **update only `full_name`** (role/email are not client-writable).
-- `learner_profiles` — read/write only the user's own rows.
+- `learner_profiles` — read/update only the user's own rows; **insert requires the profile role to be `student`** (not just ownership). Onboarding creates the row via the `complete_onboarding()` definer function.
 - `quiz_sessions`, `attempts`, `reports` — a user can **read** only their own rows; **client INSERT is revoked**. Writes go through `finalize_quiz_submission()` (service_role only, atomic + idempotent).
 - `topics` are public; **active** `questions` are public for **render columns only** — `answer_text`, `hint`, `solution_steps` are withheld from anon/authenticated.
-- `teacher_resources` — owner (`teacher_id`) only; admins may select all.
+- `teacher_resources` — owner (`teacher_id`) only; **insert/update additionally require the profile role to be `teacher`**; admins may select all.
 - `beta_leads` — public **insert** only; select is admin-only.
 
 ## Data-exposure posture

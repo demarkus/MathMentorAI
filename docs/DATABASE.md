@@ -60,6 +60,7 @@ Public beta sign-ups.
 | 7 | `20260704020846_protect_answer_keys.sql` | column-scoped `questions` SELECT (withholds answer keys) |
 | 8 | `20260704022709_trusted_submission.sql` | revoke client INSERT on `attempts`/`quiz_sessions`/`reports`; issued-session columns; `finalize_quiz_submission()` |
 | 9 | `20260704110237_enforce_question_topic_grade.sql` | composite FK `questions(topic_id, grade)` → `topics(id, grade)` so a question's grade must match its topic's grade |
+| 10 | `20260704113638_tighten_rls_role_semantics.sql` | insert/update RLS on `learner_profiles` (role `student`) and `teacher_resources` (role `teacher`) now require the matching profile role, not just ownership |
 
 All migrations are **additive and idempotent** (guards on tables, indexes, and policies).
 
@@ -78,13 +79,13 @@ RLS is enabled on **every** table. Summary of who can do what:
 | Table | Public (anon) | Authenticated user | Admin |
 |-------|---------------|--------------------|-------|
 | `profiles` | — | select **own**; update **`full_name` only** | own only |
-| `learner_profiles` | — | select/insert/update **own** | own only |
+| `learner_profiles` | — | select/update **own**; insert own **only if role = student** | own only |
 | `topics` | select | select | select |
 | `questions` | select (active, **render columns only**) | select (active, render columns only) | full via service role in admin |
 | `quiz_sessions` | — | select **own** (no client insert) | own only |
 | `attempts` | — | select **own** (no client insert) | own only |
 | `reports` | — | select **own** (no client insert) | own only |
-| `teacher_resources` | — | select/insert/update/delete **own** | **select all** |
+| `teacher_resources` | — | select/delete **own**; insert/update own **only if role = teacher** | **select all** |
 | `beta_leads` | **insert only** | insert | **select all** |
 
 Notes:
