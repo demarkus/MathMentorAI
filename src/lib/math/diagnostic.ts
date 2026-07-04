@@ -176,23 +176,9 @@ export function buildRecommendation(summary: DiagnosticSummary): string {
   return "Keep practising across topics to strengthen your overall readiness.";
 }
 
-/** Runtime guard for a summary loaded from an untrusted source (URL or DB jsonb). */
+/** Runtime guard for a summary loaded from the persisted report jsonb. */
 export function isDiagnosticSummary(value: unknown): value is DiagnosticSummary {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Record<string, unknown>;
   return typeof candidate.percentage === "number" && Array.isArray(candidate.topics);
-}
-
-/** Compact, URL-safe transport of the summary to the result page (fallback path). */
-export function encodeSummary(summary: DiagnosticSummary): string {
-  return Buffer.from(JSON.stringify(summary)).toString("base64url");
-}
-
-export function decodeSummary(data: string): DiagnosticSummary | null {
-  try {
-    const parsed: unknown = JSON.parse(Buffer.from(data, "base64url").toString("utf8"));
-    return isDiagnosticSummary(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
 }

@@ -5,8 +5,6 @@ import {
   weakestTopic,
   selectDiagnosticQuestions,
   isDiagnosticSummary,
-  encodeSummary,
-  decodeSummary,
   DIAGNOSTIC_QUESTION_LIMIT,
   type DiagnosticQuestion,
   type DiagnosticSummary,
@@ -98,13 +96,13 @@ test("selectDiagnosticQuestions: caps at the limit and mixes grades", () => {
   expect(picked.some((q) => q.grade === 10)).toBe(true);
 });
 
-test("encode/decode summary round-trips and the guard validates shape", () => {
+test("the diagnostic summary guard validates shape", () => {
   const summary: DiagnosticSummary = {
     score: 5, totalMarks: 10, correct: 5, totalQuestions: 10, percentage: 50,
     weakTopics: ["A"], strongTopics: [], topics: [{ topic: "A", slug: "a", correct: 1, total: 2, percentage: 50 }],
   };
-  expect(decodeSummary(encodeSummary(summary))).toEqual(summary);
   expect(isDiagnosticSummary(summary)).toBe(true);
   expect(isDiagnosticSummary({})).toBe(false);
-  expect(decodeSummary("not-valid-base64url!!")).toBe(null);
+  expect(isDiagnosticSummary(null)).toBe(false);
+  expect(isDiagnosticSummary({ percentage: 50 })).toBe(false);
 });
