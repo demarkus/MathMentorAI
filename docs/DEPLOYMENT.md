@@ -47,7 +47,7 @@ Never introduce a `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` that exposes a secret; 
 
 ## 3. Migrations & seed
 
-Apply migrations **in filename order** (they are additive and idempotent). Either:
+Apply migrations **in filename order**, each **exactly once**. They are additive; most use `if not exists` / drop-then-create guards, but not all are safe to replay — do not re-run a migration that has already been applied. Either:
 
 ```bash
 # Option A — Supabase CLI (link the project first)
@@ -75,7 +75,7 @@ Then load CAPS content by running **`supabase/seed.sql`** — one command, no ma
 supabase/seed.sql   -- clean 14 topics + 108 questions
 ```
 
-`seed.sql` self-reconciles: it first removes only the catalogue rows **no learner has attempted**, then upserts the canonical set. On a fresh database this clears the migration baseline for a clean 14/108 with no duplicates and no stray `exam-revision` topic; on a database with learner history it preserves every attempted question (and its topic) and never deletes learner data. It is safe to re-run.
+`seed.sql` reconciles the migration baseline by an explicit **allow-list**, not by deleting everything unattempted. It removes only rows that exactly match the known baseline fingerprint (grade + slug + question_text + answer_text + hint) and have no attempts, then upserts the canonical set; the empty baseline `exam-revision` topic is dropped only once it is empty. This means **custom admin topics/questions are never deleted** (they never match the fingerprint), a baseline row **edited** in any of those fields is preserved, and **any attempted row (and its topic) is preserved**. On a fresh database you get a clean 14/108 with no duplicates and no stray `exam-revision` topic. It is safe to re-run (identical-text baseline rows equal the canonical content and are left untouched, so there is no delete/re-insert churn).
 
 > `supabase/schema.sql` is a **reference copy only** (schema-only: tables, indexes, RLS, policies, and functions — no seed) and is intentionally not a setup path. Always set up a real database from the **migrations**, never from `schema.sql`.
 
@@ -132,8 +132,8 @@ order by proname;
 
 ## 5. Production database steps
 
-- Apply **all twelve migrations** (in filename order — see §3) to the production database before inviting users. They are additive and idempotent; the security hardening (secure roles, protected answer keys, trusted submission, topic/grade integrity, RLS role semantics, session expiry, beta-lead hardening) is only in force once its migration is applied.
-- If you want the CAPS catalogue in production, load it by running `supabase/seed.sql` (§3) — one command, no manual pre-step. It reconciles safely and never deletes learner data.
+- Apply **every migration** (in filename order — see §3), each **exactly once**, to the production database before inviting users. They are additive but must not be replayed; the security hardening (secure roles, protected answer keys, trusted submission, topic/grade integrity, RLS role semantics, session expiry, beta-lead hardening) is only in force once its migration is applied.
+- If you want the CAPS catalogue in production, load it by running `supabase/seed.sql` (§3) — one command, no manual pre-step. It reconciles only the known baseline by allow-list and never deletes learner data or custom admin content.
 - Confirm RLS is on for every table (it is defined in the SQL) — Supabase → Authentication → Policies.
 
 ## 6. Production smoke-test checklist
