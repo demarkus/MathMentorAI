@@ -85,15 +85,18 @@ test("buildRecommendation: reflects weak topics / strong / low bands", () => {
   expect(buildRecommendation(weak)).toMatch(/Factorisation/);
 });
 
-test("selectDiagnosticQuestions: caps at the limit and mixes grades", () => {
+test("selectDiagnosticQuestions: caps at the limit and never mixes in another grade", () => {
   const many: DiagnosticQuestion[] = [];
-  for (let i = 0; i < 8; i++) many.push(dq({ id: `g9-${i}`, grade: 9, topic_id: `t${i % 3}` }));
-  for (let i = 0; i < 8; i++) many.push(dq({ id: `g10-${i}`, grade: 10, topic_id: `t${i % 3}` }));
+  for (let i = 0; i < 14; i++) many.push(dq({ id: `g9-${i}`, grade: 9, topic_id: `t${i % 3}` }));
+  for (let i = 0; i < 14; i++) many.push(dq({ id: `g10-${i}`, grade: 10, topic_id: `t${i % 3}` }));
 
-  const picked = selectDiagnosticQuestions(many, DIAGNOSTIC_QUESTION_LIMIT);
-  expect(picked.length).toBe(DIAGNOSTIC_QUESTION_LIMIT);
-  expect(picked.some((q) => q.grade === 9)).toBe(true);
-  expect(picked.some((q) => q.grade === 10)).toBe(true);
+  const g9 = selectDiagnosticQuestions(many, DIAGNOSTIC_QUESTION_LIMIT, 9);
+  expect(g9.length).toBe(DIAGNOSTIC_QUESTION_LIMIT);
+  expect(g9.every((q) => q.grade === 9)).toBe(true);
+
+  const g10 = selectDiagnosticQuestions(many, DIAGNOSTIC_QUESTION_LIMIT, 10);
+  expect(g10.length).toBe(DIAGNOSTIC_QUESTION_LIMIT);
+  expect(g10.every((q) => q.grade === 10)).toBe(true);
 });
 
 test("the diagnostic summary guard validates shape", () => {

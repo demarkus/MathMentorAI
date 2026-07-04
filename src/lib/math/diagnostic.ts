@@ -31,6 +31,9 @@ export type DiagnosticSummary = {
   weakTopics: string[];
   strongTopics: string[];
   topics: TopicBreakdown[];
+  // The grade this diagnostic covered. Optional so previously-persisted reports
+  // (written before diagnostics became grade-scoped) still validate and render.
+  grade?: number;
 };
 
 export type GradedQuestion = {
@@ -70,36 +73,30 @@ function roundRobinByTopic(questions: DiagnosticQuestion[]): DiagnosticQuestion[
 }
 
 /**
- * Picks a balanced set of questions: alternating between Grade 9 and Grade 10,
- * round-robined across topics within each grade, capped at `limit`.
+ * Picks a balanced diagnostic for a SINGLE grade: round-robined across the
+ * grade's topics so no one topic dominates, capped at `limit`. Diagnostics are
+ * grade-scoped — a learner is only ever tested on their own grade — so when
+ * `grade` is given the pool is filtered to it first; questions from any other
+ * grade are ignored (never silently mixed in).
  */
 export function selectDiagnosticQuestions(
   all: DiagnosticQuestion[],
   limit = DIAGNOSTIC_QUESTION_LIMIT,
+  grade?: number,
 ): DiagnosticQuestion[] {
-  const grade9 = roundRobinByTopic(all.filter((question) => question.grade === 9));
-  const grade10 = roundRobinByTopic(all.filter((question) => question.grade === 10));
-
-  const selected: DiagnosticQuestion[] = [];
-  let i = 0;
-  let j = 0;
-  while (selected.length < limit && (i < grade9.length || j < grade10.length)) {
-    const preferGrade9 = selected.length % 2 === 0;
-    if (i < grade9.length && (preferGrade9 || j >= grade10.length)) {
-      selected.push(grade9[i++]);
-    } else if (j < grade10.length) {
-      selected.push(grade10[j++]);
-    } else if (i < grade9.length) {
-      selected.push(grade9[i++]);
-    }
-  }
-  return selected.slice(0, limit);
+  const pool = grade === undefined ? all : all.filter((question) => question.grade === grade);
+  return roundRobinByTopic(pool).slice(0, limit);
 }
 
-/** Marks the submitted answers and builds the per-topic diagnostic summary. */
+/**
+ * Marks the submitted answers and builds the per-topic diagnostic summary.
+ * `grade` (when known) is stamped on the summary so the persisted report is
+ * unambiguous even when topic names/slugs are shared across grades.
+ */
 export function gradeDiagnostic(
   questions: DiagnosticQuestion[],
   answersById: Map<string, string>,
+  grade?: number,
 ): DiagnosticResult {
   const topics = new Map<string, TopicBreakdown>();
   const graded: GradedQuestion[] = [];
@@ -143,6 +140,7 @@ export function gradeDiagnostic(
     weakTopics: topicList.filter((topic) => topic.percentage < 50).map((topic) => topic.topic),
     strongTopics: topicList.filter((topic) => topic.percentage >= 80).map((topic) => topic.topic),
     topics: topicList,
+    grade,
   };
 
   return { summary, graded };

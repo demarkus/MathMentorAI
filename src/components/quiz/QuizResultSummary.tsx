@@ -5,14 +5,17 @@ import { Badge } from "@/components/ui/Badge";
 
 /** Presentational diagnostic result: score, strengths, gaps, recommendations. */
 export function QuizResultSummary({ summary }: { summary: DiagnosticSummary }) {
-  const { score, totalMarks, correct, totalQuestions, percentage, weakTopics, strongTopics, topics } = summary;
+  const { score, totalMarks, correct, totalQuestions, percentage, weakTopics, strongTopics, topics, grade } = summary;
   const band = resultBand(percentage);
   const weakest = weakestTopic(summary);
+  // Topic slugs are shared across grades, so practice links carry the canonical
+  // grade when the report has one (older reports may not — then omit it).
+  const gradeQuery = grade ? `?grade=${grade}` : "";
 
   return (
     <div className="space-y-8">
       <div className="rounded-3xl border border-line bg-white p-8 text-center">
-        <p className="text-sm font-semibold text-brand">Diagnostic complete</p>
+        <p className="text-sm font-semibold text-brand">Diagnostic complete{grade ? ` · Grade ${grade}` : ""}</p>
         <p className="mt-4 font-mono text-6xl font-semibold">{percentage}%</p>
         <div className="mt-4 flex justify-center">
           <Badge tone={band.tone}>{band.label}</Badge>
@@ -77,7 +80,7 @@ export function QuizResultSummary({ summary }: { summary: DiagnosticSummary }) {
         <div className="mt-5 flex flex-wrap gap-3">
           {weakest && weakest.slug ? (
             <Link
-              href={`/learner/practice/${weakest.slug}`}
+              href={`/learner/practice/${weakest.slug}${gradeQuery}`}
               className="rounded-xl bg-brand px-5 py-3 font-semibold text-white hover:bg-brand-dark"
             >
               Practise {weakest.topic}
