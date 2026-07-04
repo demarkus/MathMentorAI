@@ -45,7 +45,7 @@ See [docs/MVP_SCOPE.md](docs/MVP_SCOPE.md) for what is intentionally excluded.
 - **Supabase Postgres** with **Row Level Security (RLS)** policies
 - **pnpm** for package management
 
-No test framework or CSS-in-JS is used. There are currently **no automated tests**.
+No CSS-in-JS is used. Automated tests run on **Vitest** (unit), a gated **Vitest integration** suite against a dedicated Supabase project, and **Playwright** E2E — all wired into **GitHub Actions CI**. See [Testing](#testing).
 
 ---
 
@@ -120,7 +120,7 @@ excluded from the app `tsconfig`/lint; the `@` path alias is mirrored in
 - **Covered:** `check-answer` (grading + `x = 5`↔`5` equivalence and its
   documented limits), `answer-format`, `result-band`, `progress` (topic
   performance, weak/strong topics, recommendations, averages), `diagnostic` and
-  `practice` (selection, grading, recommendations, summary encode/decode),
+  `practice` (selection, grading, recommendations, summary shape guards),
   `teacher-resources` (generator input validation + question selection),
   `marketing/plans` (beta-lead plan/role validators), and `require-role`
   (role→redirect access decisions incl. the learner→`student` mapping, with
@@ -129,14 +129,16 @@ excluded from the app `tsconfig`/lint; the `@` path alias is mirrored in
 suite against a **dedicated, non-production** Supabase project. They are gated on
 `INTEGRATION_SUPABASE_*` env vars and **skip** when absent, so the unit run stays
 offline. They assert the RLS boundaries the unit suite can't (owner-scoping,
-admin visibility, `beta_leads` public-insert / no-public-read). Setup and the full
-layered plan (Playwright E2E + CI are still planned) are in
+admin visibility, role-scoped writes, trusted submission/beta paths, and the
+`beta_leads` write-via-function / no-public-read shape). Setup is in
 [docs/TESTING_E2E_PLAN.md](docs/TESTING_E2E_PLAN.md).
 
-**E2E tests** (`pnpm test:e2e`, Playwright) drive real Chromium against the app.
-The marketing + routing/protection journeys run with a placeholder backend (no
-real project needed); auth journeys are planned and gated on a test project. First
-run: `pnpm exec playwright install chromium`. See [docs/TESTING_E2E_PLAN.md](docs/TESTING_E2E_PLAN.md).
+**E2E tests** (`pnpm test:e2e`, Playwright) drive real Chromium against the app —
+marketing, routing/protection, and auth journeys run with a placeholder backend
+(no real project needed). First run: `pnpm exec playwright install chromium`.
+
+**CI** — GitHub Actions (`.github/workflows/ci.yml`) runs lint, build, the unit
+suite, and the gated integration + E2E suites on every push/PR.
 
 ---
 
@@ -153,7 +155,11 @@ run: `pnpm exec playwright install chromium`. See [docs/TESTING_E2E_PLAN.md](doc
    6. `20260704014402_secure_roles.sql`
    7. `20260704020846_protect_answer_keys.sql`
    8. `20260704022709_trusted_submission.sql`
-4. **Run the seed** — execute `supabase/seed.sql` (safe to re-run; upserts topics, skips duplicate questions).
+   9. `20260704110237_enforce_question_topic_grade.sql`
+   10. `20260704113638_tighten_rls_role_semantics.sql`
+   11. `20260704115128_add_session_expiry_and_cleanup.sql`
+   12. `20260704130052_harden_beta_leads.sql`
+4. **Run the seed** — execute `supabase/seed.sql` (one command, safe to re-run; self-reconciles the baseline without deleting learner data → clean 14 topics / 108 questions).
 5. **Enable email/password auth** — Authentication → Providers → Email. Set the Site URL and add `<your-app>/auth/callback` as a redirect URL for email confirmation.
 6. **RLS** is defined inside the SQL — every sensitive table has RLS enabled with owner-scoped policies. `supabase/schema.sql` is a **schema-only** reference of the same objects (never a setup path).
 
@@ -216,9 +222,9 @@ More detail: [docs/SECURITY_NOTES.md](docs/SECURITY_NOTES.md).
 - **Parent–learner linking not implemented** — parent report pages are safe placeholders.
 - **No AI explanations** — hints and worked steps come from seeded `solution_steps`, not a model.
 - **Answer checking is deterministic/string-based** — `normalizeAnswer` (NFKC, whitespace/operator normalisation), not symbolic algebra.
-- **Some persistence depends on migrations** — `quiz_sessions`, `reports`, `attempts.quiz_session_id`, `teacher_resources`, and `beta_leads` require their migrations to be applied; the app degrades gracefully (encoded-summary fallbacks, placeholders) when they are absent.
+- **Some persistence depends on migrations** — `teacher_resources`, `beta_leads`, and the security hardening (secure roles, protected answer keys, trusted submission, topic/grade FK, RLS role semantics, session expiry, beta-lead function) are only in force once their migrations are applied; the app degrades gracefully (placeholders) when they are absent.
 - **Email templates provided, install pending** — branded HTML lives in `supabase/templates/`; paste it into the Supabase dashboard ([docs/EMAIL_TEMPLATES.md](docs/EMAIL_TEMPLATES.md)). Supabase defaults are used until then.
-- **Tests are unit-level only** — Vitest (`pnpm test`) covers the deterministic logic and the auth/role guard; DB-backed server actions and RLS still rely on the manual smoke test.
+- **Test layers** — Vitest unit (`pnpm test`), a gated Vitest integration/RLS suite against a dedicated test project (`pnpm test:integration`), and Playwright E2E (`pnpm test:e2e`), all run in CI. The integration/E2E suites need their env secrets (and the migrations applied to the test project) to execute; they skip otherwise.
 
 ---
 
@@ -237,4 +243,4 @@ Full steps and checklist: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Roadmap (summary)
 
-PayFast/Yoco/Stripe payments · parent–learner linking · improved symbolic answer checking · AI-guided hints/explanations · PDF export for reports and worksheets · automated tests · analytics · a fuller beta onboarding flow. See [docs/ROADMAP.md](docs/ROADMAP.md).
+PayFast/Yoco/Stripe payments · parent–learner linking · improved symbolic answer checking · AI-guided hints/explanations · PDF export for reports and worksheets · analytics · a fuller beta onboarding flow. See [docs/ROADMAP.md](docs/ROADMAP.md).

@@ -54,28 +54,30 @@ Apply migrations **in filename order** (they are additive and idempotent). Eithe
 pnpm dlx supabase db push
 ```
 
-or paste each file from `supabase/migrations/` into the SQL editor, in this order:
+or paste each file from `supabase/migrations/` into the SQL editor, **in filename order**:
 
 1. `20260630012144_initial_math_mentor_schema.sql`
 2. `20260702120000_add_quiz_sessions_and_reports.sql`
 3. `20260702130000_link_attempts_to_quiz_sessions.sql`
 4. `20260702140000_add_teacher_resources.sql`
 5. `20260702182712_add_beta_leads.sql`
+6. `20260704014402_secure_roles.sql`
+7. `20260704020846_protect_answer_keys.sql`
+8. `20260704022709_trusted_submission.sql`
+9. `20260704110237_enforce_question_topic_grade.sql`
+10. `20260704113638_tighten_rls_role_semantics.sql`
+11. `20260704115128_add_session_expiry_and_cleanup.sql`
+12. `20260704130052_harden_beta_leads.sql`
 
-Then load CAPS content. **Clear the migration's baseline seed first** — the initial migration (`…012144`) already seeds a smaller baseline (9 topics / 30 questions) in different notation (e.g. `x²`), and `seed.sql`'s duplicate guard only skips *exact* text matches. Without this step you'll get duplicate questions and a leftover `exam-revision` topic. On a fresh database (no learner data yet) this is safe:
+Then load CAPS content by running **`supabase/seed.sql`** — one command, no manual pre-step:
 
-```sql
--- 1. clear the baseline the initial migration inserted
-delete from public.questions;
-delete from public.topics;
+```
+supabase/seed.sql   -- clean 14 topics + 108 questions
 ```
 
-```
--- 2. run the full seed → clean 14 topics + 108 questions
-supabase/seed.sql
-```
+`seed.sql` self-reconciles: it first removes only the catalogue rows **no learner has attempted**, then upserts the canonical set. On a fresh database this clears the migration baseline for a clean 14/108 with no duplicates and no stray `exam-revision` topic; on a database with learner history it preserves every attempted question (and its topic) and never deletes learner data. It is safe to re-run.
 
-> `supabase/schema.sql` is a **reference copy only** and is intentionally not a setup path: it is missing `quiz_sessions`, `reports`, and `attempts.quiz_session_id`, and uses bare `create table`. Always set up a real database from the **migrations**, never from `schema.sql`.
+> `supabase/schema.sql` is a **reference copy only** (schema-only: tables, indexes, RLS, policies, and functions — no seed) and is intentionally not a setup path. Always set up a real database from the **migrations**, never from `schema.sql`.
 
 ### Verify the database after setup
 
@@ -106,10 +108,16 @@ select count(*) as questions from public.questions;           -- expect 108
 select topic_id, question_text, count(*)
 from public.questions group by topic_id, question_text having count(*) > 1;
 
--- beta_leads = public insert, admin-only select; teacher_resources = owner-scoped
+-- beta_leads = admin-only select (writes via submit_beta_lead(), no insert policy);
+-- teacher_resources = owner-scoped (insert/update require the teacher role)
 select tablename, policyname, cmd, roles from pg_policies
 where schemaname='public' and tablename in ('beta_leads','teacher_resources')
 order by tablename, cmd;
+
+-- Trusted functions exist (submit_beta_lead, finalize_quiz_submission, cleanup_expired_sessions, complete_onboarding)
+select proname from pg_proc where pronamespace = 'public'::regnamespace
+  and proname in ('submit_beta_lead','finalize_quiz_submission','cleanup_expired_sessions','complete_onboarding')
+order by proname;
 ```
 
 ## 4. Vercel deployment
@@ -124,8 +132,8 @@ order by tablename, cmd;
 
 ## 5. Production database steps
 
-- Apply **all five migrations** to the production database before inviting users (teacher resources, quiz sessions, reports, and beta leads persist only once their migrations exist; the app degrades gracefully otherwise, but a beta should have them applied).
-- If you want the CAPS catalogue in production, load it using the **clear-baseline-then-seed** procedure in §3 (clear the migration baseline, then run `supabase/seed.sql`) so you get a clean 14 topics / 108 questions with no duplicates.
+- Apply **all twelve migrations** (in filename order — see §3) to the production database before inviting users. They are additive and idempotent; the security hardening (secure roles, protected answer keys, trusted submission, topic/grade integrity, RLS role semantics, session expiry, beta-lead hardening) is only in force once its migration is applied.
+- If you want the CAPS catalogue in production, load it by running `supabase/seed.sql` (§3) — one command, no manual pre-step. It reconciles safely and never deletes learner data.
 - Confirm RLS is on for every table (it is defined in the SQL) — Supabase → Authentication → Policies.
 
 ## 6. Production smoke-test checklist

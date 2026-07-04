@@ -4,15 +4,15 @@
 -- which is a reference copy only). This file loads the full CAPS content:
 -- 14 topics (7 per grade) and 108 questions.
 --
--- IMPORTANT — clear the baseline first for a clean result. The initial
--- migration (20260630012144) already seeds a smaller baseline (9 topics /
--- 30 questions) using different notation (e.g. x²), so the duplicate guard
--- below only skips exact text matches. To end up with exactly 14 topics /
--- 108 questions (no near-duplicates), run this on the baseline once, before
--- any learner data exists:
---     delete from public.questions;
---     delete from public.topics;
--- then run this file.
+-- Single command, no manual pre-step, safe to re-run, never deletes learner
+-- data. The initial migration (20260630012144) seeds a smaller baseline
+-- (9 topics / 30 questions, e.g. x²) that would otherwise leave near-duplicates.
+-- Instead of the old "delete everything first" instruction, the reconciliation
+-- block below removes ONLY catalogue rows that no learner has attempted:
+--   * a fresh database (no attempts yet) → baseline is cleared, you get exactly
+--     14 topics / 108 questions with no duplicates and no stray topics.
+--   * a database with learner history → every attempted question (and its topic)
+--     is preserved; only the untouched baseline is reconciled to the canonical set.
 --
 -- Do not seed profiles here because profiles depend on auth.users.
 --
@@ -25,6 +25,17 @@
 -- Questions use the current schema columns only: topic_id, grade, question_text,
 -- answer_text, hint, solution_steps (jsonb array), difficulty, marks, is_active.
 -- There is no explanation_text column; worked steps live in solution_steps.
+
+-- Reconcile the migration baseline without touching learner data --------------
+-- Remove only questions no learner has attempted (attempts.question_id → questions
+-- is ON DELETE CASCADE, so filtering on "no attempts" guarantees no history is
+-- lost), then drop any topic left with no questions (e.g. the baseline
+-- 'exam-revision' topic). On a fresh database this clears the entire baseline;
+-- with learner data it keeps everything a learner has used.
+delete from public.questions q
+  where not exists (select 1 from public.attempts a where a.question_id = q.id);
+delete from public.topics t
+  where not exists (select 1 from public.questions q where q.topic_id = t.id);
 
 -- Topics ------------------------------------------------------------------------
 
