@@ -1,3 +1,5 @@
+import { seededShuffle, selectBalancedByDifficulty } from "@/lib/util/shuffle";
+
 export const MIN_QUESTIONS = 1;
 export const MAX_QUESTIONS = 30;
 export const DEFAULT_QUESTIONS = 10;
@@ -102,16 +104,24 @@ export function explanationFrom(question: { solution_steps?: string[]; hint?: st
 
 /**
  * Selects up to `count` questions. For a specific difficulty it filters to it;
- * for "mixed" it round-robins easy → medium → hard for variety.
+ * for "mixed" it round-robins easy → medium → hard for balance.
+ *
+ * Pass `rng` (production: {@link cryptoRng}) to VARY which questions are chosen
+ * so successive worksheets on the same topic aren't identical; omit it (or pass a
+ * fixed-seed rng in tests) for a deterministic, stable order.
  */
 export function selectQuestions(
   all: SourceQuestion[],
   count: number,
   difficulty: DifficultyOption,
+  rng?: () => number,
 ): SourceQuestion[] {
   if (difficulty !== "mixed") {
-    return all.filter((question) => question.difficulty === difficulty).slice(0, count);
+    const filtered = all.filter((question) => question.difficulty === difficulty);
+    return (rng ? seededShuffle(filtered, rng) : filtered).slice(0, count);
   }
+  if (rng) return selectBalancedByDifficulty(all, count, rng);
+
   const buckets = ["easy", "medium", "hard"].map((level) => all.filter((q) => q.difficulty === level));
   const ordered: SourceQuestion[] = [];
   let added = true;
