@@ -17,7 +17,7 @@ import {
  * RLS boundary checks against a live test Supabase project. Skipped unless the
  * INTEGRATION_SUPABASE_* env vars are set (see helpers.ts). These assert the
  * security model the unit suite can't reach: owner-scoping, admin visibility,
- * public content read, and the public-insert / no-public-read shape of beta_leads.
+ * public content read, and the write-via-function / no-public-read shape of beta_leads.
  */
 describe.skipIf(!hasIntegrationEnv)("RLS boundaries", () => {
   let learnerA: TestUser;
@@ -196,13 +196,28 @@ describe.skipIf(!hasIntegrationEnv)("RLS boundaries", () => {
   });
 
   describe("beta_leads", () => {
-    test("public can insert, but only admins can read", async () => {
+    test("public writes only via submit_beta_lead(); only admins can read", async () => {
       const anon = anonClient();
       const email = `it-lead-${Date.now()}@mathmentor.test`;
-      const insert = await anon
+
+      // Direct insert is revoked — the public cannot write the table directly.
+      const direct = await anon
         .from("beta_leads")
         .insert({ full_name: "IT Lead", email, phone: null, role: "parent", selected_plan: "parent-beta", message: null });
-      expect(insert.error).toBeNull(); // public insert allowed
+      expect(direct.error).not.toBeNull(); // permission denied for table
+
+      // The trusted function is the only write path.
+      const rpc = await anon.rpc("submit_beta_lead", {
+        p_full_name: "IT Lead",
+        p_email: email,
+        p_role: "parent",
+        p_selected_plan: "parent-beta",
+        p_phone: null,
+        p_message: null,
+        p_ip: null,
+      });
+      expect(rpc.error).toBeNull();
+      expect(rpc.data).toBe("ok");
 
       expect((await anon.from("beta_leads").select("id")).data).toEqual([]); // no public select
 
@@ -213,6 +228,8 @@ describe.skipIf(!hasIntegrationEnv)("RLS boundaries", () => {
       const adminRead = await adminClient.from("beta_leads").select("id").eq("email", email);
       expect(adminRead.error).toBeNull();
       expect(adminRead.data?.length).toBeGreaterThanOrEqual(1); // admin can read
+
+      await serviceClient().from("beta_leads").delete().eq("email", email);
     });
   });
 });
