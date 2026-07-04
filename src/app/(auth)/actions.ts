@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { safeNextPath } from "@/lib/auth/safe-redirect";
 import type { Role } from "@/lib/types";
 
 // The sign-up form offers app-facing role labels. "learner" is stored as the
@@ -19,13 +20,24 @@ const PUBLIC_SIGNUP_ROLES: Record<string, Role> = {
 };
 
 export async function login(formData: FormData) {
+  // Validate the return path up front. safeNextPath rejects open-redirect
+  // payloads (absolute/protocol-relative/backslash-smuggled) and falls back to
+  // /dashboard, so `next` is always a same-origin local destination.
+  const rawNext = formData.get("next");
+  const next = safeNextPath(rawNext);
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({
     email: String(formData.get("email")),
     password: String(formData.get("password")),
   });
-  if (error) redirect(`/auth/sign-in?error=${encodeURIComponent(error.message)}`);
-  redirect("/dashboard");
+  if (error) {
+    const params = new URLSearchParams({ error: error.message });
+    // Preserve the (already-validated, safe) destination across a failed attempt.
+    if (typeof rawNext === "string" && rawNext.length > 0) params.set("next", next);
+    redirect(`/auth/sign-in?${params.toString()}`);
+  }
+  redirect(next);
 }
 
 export async function signup(formData: FormData) {
