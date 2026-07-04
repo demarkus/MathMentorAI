@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { TopicCard, type CatalogueTopic } from "@/components/dashboard/TopicCard";
 import { QuizShell, type QuizShellQuestion } from "@/components/quiz/QuizShell";
 import { PRACTICE_MAX_QUESTIONS } from "@/lib/math/practice";
+import { startSession } from "@/lib/quiz/session";
 import { submitPractice, checkPracticeAnswer } from "../actions";
 
 const VALID_GRADES = [9, 10];
@@ -37,7 +38,7 @@ export default async function TopicPracticePage({
   params: Promise<{ topicSlug: string }>;
   searchParams: Promise<{ grade?: string }>;
 }) {
-  await requireRole("learner");
+  const user = await requireRole("learner");
   const { topicSlug } = await params;
   const { grade } = await searchParams;
 
@@ -111,6 +112,39 @@ export default async function TopicPracticePage({
     );
   }
 
+  const { data: learner } = await supabase
+    .from("learner_profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const learnerId = (learner as { id: string } | null)?.id;
+  if (!learnerId) redirect("/onboarding");
+
+  // Persist the exact issued set (topic + grade bound) as a session. Submit and
+  // the per-question reveal are validated against it server-side.
+  const admin = createServiceRoleClient();
+  const sessionId = admin
+    ? await startSession(admin, {
+        learnerId,
+        quizType: "practice",
+        topicId: topic.id,
+        grade: topic.grade,
+        questionIds: questions.map((question) => question.id),
+      })
+    : null;
+  if (!sessionId) {
+    return (
+      <div className="space-y-8">
+        <BackLink />
+        <DashboardHeader eyebrow={`Grade ${topic.grade} practice`} title={topic.name} subtitle={topic.description} />
+        <div className="rounded-2xl border border-line bg-white p-8 text-center">
+          <h2 className="text-lg font-semibold">We couldn’t start this practice</h2>
+          <p className="mt-2 text-sm text-muted">Something went wrong preparing your questions. Please go back and try again.</p>
+        </div>
+      </div>
+    );
+  }
+
   // Only render fields reach the client. Correctness + answer + explanation come
   // from the trusted checkPracticeAnswer action after each check.
   const quizQuestions: QuizShellQuestion[] = questions.map((question) => ({
@@ -122,7 +156,7 @@ export default async function TopicPracticePage({
     grade: question.grade,
   }));
 
-  const onSubmit = submitPractice.bind(null, topic.slug, topic.grade);
+  const onSubmit = submitPractice.bind(null, sessionId, topic.slug);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -138,7 +172,7 @@ export default async function TopicPracticePage({
       <QuizShell
         questions={quizQuestions}
         onSubmit={onSubmit}
-        onCheck={checkPracticeAnswer}
+        onCheck={checkPracticeAnswer.bind(null, sessionId)}
         submitLabel="Finish & see results"
         reveal
       />

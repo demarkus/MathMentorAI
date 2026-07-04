@@ -47,7 +47,7 @@ export function QuizShell({
   reveal = false,
 }: {
   questions: QuizShellQuestion[];
-  onSubmit: (answers: QuizAnswer[]) => Promise<{ error?: string } | void>;
+  onSubmit: (answers: QuizAnswer[], submissionKey: string) => Promise<{ error?: string } | void>;
   onCheck?: (questionId: string, answer: string) => Promise<QuizCheckResult | { error?: string }>;
   submitLabel?: string;
   reveal?: boolean;
@@ -58,6 +58,9 @@ export function QuizShell({
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Stable idempotency key for this attempt — a retry reuses it so the trusted
+  // finalize returns the existing result instead of duplicating.
+  const [submissionKey] = useState(() => crypto.randomUUID());
   // Synchronous guard: `saving` state updates asynchronously, so two submits in
   // the same tick (e.g. Enter + click) could both pass a state-only check and
   // fire onSubmit twice. This ref blocks concurrent submits deterministically.
@@ -109,7 +112,7 @@ export function QuizShell({
         questionId: item.id,
         answer: answers[item.id] ?? "",
       }));
-      const result = await onSubmit(payload);
+      const result = await onSubmit(payload, submissionKey);
       if (result?.error) {
         setError(result.error);
         setSaving(false);

@@ -3,9 +3,9 @@
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
-import { gradePractice, explanationFor, encodePracticeSummary, type PracticeQuestion } from "@/lib/math/practice";
+import { gradePractice, explanationFor, type PracticeQuestion } from "@/lib/math/practice";
 import { isAnswerCorrect } from "@/lib/math/check-answer";
-import { createQuizSession, insertAttempts, createReport } from "@/lib/quiz/persistence";
+import { loadSession, finalizeSession, submittedMatchesIssued } from "@/lib/quiz/session";
 import type { QuizAnswer, QuizCheckResult } from "@/components/quiz/QuizShell";
 
 type QuestionRow = {
@@ -38,91 +38,106 @@ function toPracticeQuestion(row: QuestionRow): PracticeQuestion {
   };
 }
 
+async function learnerId(userId: string): Promise<string | undefined> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("learner_profiles").select("id").eq("user_id", userId).maybeSingle();
+  return (data as { id: string } | null)?.id;
+}
+
 /**
- * Marks a topic practice run and persists it. `topicSlug` and `grade` are bound
- * on the server (via .bind) so the client only supplies the answers.
+ * Marks a topic practice run. `sessionId` and `topicSlug` are bound on the
+ * server; the client supplies only the answers and an idempotency key. Answers
+ * are accepted only for the issued session's question set, matching the topic
+ * and grade, and every write goes through the trusted finalize function.
  */
 export async function submitPractice(
+  sessionId: string,
   topicSlug: string,
-  grade: number,
   answers: QuizAnswer[],
+  submissionKey: string,
 ): Promise<{ error?: string } | void> {
   const user = await requireRole("learner");
-  const supabase = await createClient();
+  const id = await learnerId(user.id);
+  if (!id) return { error: "We couldn’t find your learner profile. Please finish onboarding." };
 
-  const ids = answers.map((entry) => entry.questionId).filter(Boolean);
-  if (ids.length === 0) return { error: "No answers were submitted." };
-
-  // Answer keys are not readable through the Data API — read them via the trusted
-  // service-role client to mark the answers server-side.
   const admin = createServiceRoleClient();
   if (!admin) return { error: "We couldn’t mark your answers right now. Please try again." };
 
+  const session = await loadSession(admin, String(sessionId ?? ""), id);
+  if (!session || session.quizType !== "practice") return { error: "This practice session is no longer valid." };
+
+  const submittedIds = answers.map((entry) => entry.questionId);
+  if (!submittedMatchesIssued(submittedIds, session.questionIds)) {
+    return { error: "Your answers didn’t match this practice set. Please try again." };
+  }
+
+  // Only active questions belonging to the session's topic + grade are accepted.
   const { data, error } = await admin
     .from("questions")
     .select("id, grade, marks, difficulty, question_text, answer_text, hint, solution_steps, topic_id, topics(name, slug)")
-    .in("id", ids)
-    .eq("is_active", true);
-
+    .in("id", session.questionIds)
+    .eq("is_active", true)
+    .eq("topic_id", session.topicId ?? "")
+    .eq("grade", session.grade ?? 0);
   if (error) return { error: "We couldn’t load the questions to mark your answers. Please try again." };
 
   const questions = ((data ?? []) as unknown as QuestionRow[]).map(toPracticeQuestion);
-  if (questions.length === 0) return { error: "These questions are no longer available." };
+  if (questions.length !== session.questionIds.length) {
+    return { error: "Some questions are no longer available. Please retry this topic." };
+  }
 
   const answersById = new Map(answers.map((entry) => [entry.questionId, entry.answer]));
   const summary = gradePractice(questions, answersById);
 
-  const resultBase = `/learner/practice/${topicSlug}/result`;
+  const reportId = await finalizeSession(admin, {
+    sessionId: session.id,
+    learnerId: id,
+    submissionKey: String(submissionKey ?? ""),
+    score: summary.score,
+    totalMarks: summary.totalMarks,
+    percentage: summary.percentage,
+    reportType: "practice",
+    reportData: summary,
+    attempts: summary.questions.map((q) => ({
+      questionId: q.questionId,
+      submitted: q.submitted,
+      isCorrect: q.isCorrect,
+      score: q.score,
+    })),
+  });
+  if (!reportId) return { error: "We couldn’t save your results. Please try again." };
 
-  const { data: learner } = await supabase
-    .from("learner_profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  const learnerId = (learner as { id: string } | null)?.id;
-
-  // Without a learner profile we cannot persist; show the stateless result.
-  if (!learnerId) {
-    redirect(`${resultBase}?data=${encodePracticeSummary(summary)}`);
-  }
-
-  const sessionId = await createQuizSession(learnerId, "practice", summary);
-
-  const graded = summary.questions.map((entry) => ({
-    questionId: entry.questionId,
-    submitted: entry.submitted,
-    isCorrect: entry.isCorrect,
-    score: entry.score,
-  }));
-  const attemptsError = await insertAttempts(supabase, learnerId, graded, sessionId);
-  if (attemptsError) return { error: attemptsError };
-
-  const reportId = await createReport(learnerId, sessionId, "practice", summary);
-
-  redirect(reportId ? `${resultBase}?report=${reportId}` : `${resultBase}?data=${encodePracticeSummary(summary)}`);
+  redirect(`/learner/practice/${topicSlug}/result?report=${reportId}`);
 }
 
 /**
- * Trusted per-question check for practice reveal. Reads the answer key via the
- * service role (not exposed to the browser) and scores server-side, returning
- * the correct answer + explanation only after the check.
- *
- * NOTE: this reveals one question's answer at a time to an authenticated
- * learner. Binding the reveal strictly to the learner's issued practice session
- * (so answers cannot be enumerated) is completed in Part D.
+ * Trusted per-question check for practice reveal. Bound to the learner's issued
+ * session: only questions that were issued for this session can be checked, so
+ * answer keys cannot be enumerated. Reads the answer key via the service role
+ * and scores server-side, returning the answer + explanation after the check.
  */
 export async function checkPracticeAnswer(
+  sessionId: string,
   questionId: string,
   submitted: string,
 ): Promise<QuizCheckResult | { error: string }> {
-  await requireRole("learner");
+  const user = await requireRole("learner");
+  const id = await learnerId(user.id);
+  if (!id) return { error: "Answer checking is unavailable right now." };
+
   const admin = createServiceRoleClient();
   if (!admin) return { error: "Answer checking is unavailable right now." };
+
+  const session = await loadSession(admin, String(sessionId ?? ""), id);
+  if (!session || session.quizType !== "practice") return { error: "This practice session is no longer valid." };
+  if (!session.questionIds.includes(String(questionId ?? ""))) {
+    return { error: "That question isn’t part of this practice set." };
+  }
 
   const { data, error } = await admin
     .from("questions")
     .select("answer_text, hint, solution_steps")
-    .eq("id", String(questionId ?? ""))
+    .eq("id", String(questionId))
     .eq("is_active", true)
     .maybeSingle();
   if (error || !data) return { error: "We couldn’t check that answer." };
