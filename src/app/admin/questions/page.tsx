@@ -4,8 +4,10 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { QuestionTable, type AdminQuestionRow } from "@/components/admin/QuestionTable";
+import { Pagination, parsePage } from "@/components/ui/Pagination";
 
 const DIFFICULTIES = ["easy", "medium", "hard"] as const;
+const PAGE_SIZE = 25;
 
 type TopicOption = { id: string; name: string; grade: number };
 
@@ -22,10 +24,11 @@ type QuestionRow = {
 export default async function AdminQuestionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ grade?: string; topic?: string; difficulty?: string }>;
+  searchParams: Promise<{ grade?: string; topic?: string; difficulty?: string; page?: string }>;
 }) {
   await requireRole("admin");
   const params = await searchParams;
+  const page = parsePage(params.page);
 
   const admin = createServiceRoleClient();
   if (!admin) {
@@ -57,15 +60,18 @@ export default async function AdminQuestionsPage({
     : undefined;
   const topicFilter = topics.some((topic) => topic.id === params.topic) ? params.topic : undefined;
 
+  const from = (page - 1) * PAGE_SIZE;
   let query = admin
     .from("questions")
-    .select("id, question_text, grade, difficulty, marks, is_active, topic_id")
-    .order("created_at", { ascending: false });
+    .select("id, question_text, grade, difficulty, marks, is_active, topic_id", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range(from, from + PAGE_SIZE - 1);
   if (gradeFilter) query = query.eq("grade", gradeFilter);
   if (difficultyFilter) query = query.eq("difficulty", difficultyFilter);
   if (topicFilter) query = query.eq("topic_id", topicFilter);
 
-  const { data: questionData } = await query;
+  const { data: questionData, error: questionError, count } = await query;
+  const total = count ?? 0;
   const rows: AdminQuestionRow[] = ((questionData ?? []) as QuestionRow[]).map((row) => ({
     id: row.id,
     question_text: row.question_text,
@@ -142,10 +148,21 @@ export default async function AdminQuestionsPage({
           </Link>
         </form>
 
-        <p className="text-sm text-muted">
-          {rows.length} question{rows.length === 1 ? "" : "s"}
-        </p>
-        <QuestionTable questions={rows} />
+        {questionError ? (
+          <div className="rounded-2xl border border-line bg-white p-8 text-center">
+            <h2 className="text-lg font-semibold">We couldn’t load the question bank</h2>
+            <p className="mt-2 text-sm text-muted">Something went wrong fetching questions. Please refresh to try again.</p>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-muted">
+              {total} question{total === 1 ? "" : "s"}
+              {total > PAGE_SIZE ? ` · showing ${rows.length} on this page` : ""}
+            </p>
+            <QuestionTable questions={rows} />
+            <Pagination basePath="/admin/questions" params={params} page={page} pageSize={PAGE_SIZE} total={total} />
+          </>
+        )}
       </main>
     </>
   );

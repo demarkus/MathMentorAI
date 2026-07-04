@@ -91,20 +91,53 @@ const EMPTY_PROGRESS: LearnerProgress = {
   latestDiagnostic: null,
 };
 
+// Bounded scans keep progress loading scalable: the per-topic breakdown and the
+// recent-activity list read at most this many recent rows instead of a learner's
+// whole history. Headline totals + accuracy use exact COUNT aggregates so they
+// remain correct regardless of the bound.
+const RECENT_ATTEMPT_SCAN = 500;
+const RECENT_SESSION_SCAN = 200;
+
 /**
  * Loads and computes a learner's progress. `attempts` is the primary source and
  * a hard error there sets `error`. quiz_sessions and reports are optional (they
  * only exist once the migrations are applied), so errors there are ignored.
+ *
+ * Scalable by design: totals + accuracy come from COUNT aggregates (no rows
+ * transferred); the topic breakdown and recent-activity list are computed from a
+ * bounded window of the most recent attempts/sessions.
  */
 export async function loadLearnerProgress(
   supabase: SupabaseClient,
   learnerId: string,
 ): Promise<LearnerProgress> {
+  // Exact totals via COUNT(head) — no rows transferred.
+  const totalAttemptsResult = await supabase
+    .from("attempts")
+    .select("id", { count: "exact", head: true })
+    .eq("learner_id", learnerId);
+  if (totalAttemptsResult.error) {
+    return { ...EMPTY_PROGRESS, error: true };
+  }
+  const totalAttempts = totalAttemptsResult.count ?? 0;
+
+  const correctResult = await supabase
+    .from("attempts")
+    .select("id", { count: "exact", head: true })
+    .eq("learner_id", learnerId)
+    .eq("is_correct", true);
+  if (correctResult.error) {
+    return { ...EMPTY_PROGRESS, error: true };
+  }
+  const correctCount = correctResult.count ?? 0;
+
+  // Bounded recent window for the per-topic breakdown + recent activity.
   const attemptsResult = await supabase
     .from("attempts")
     .select("id, is_correct, score, created_at, questions(marks, topic_id, question_text, grade, topics(name, slug))")
     .eq("learner_id", learnerId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(RECENT_ATTEMPT_SCAN);
 
   if (attemptsResult.error) {
     return { ...EMPTY_PROGRESS, error: true };
@@ -115,11 +148,22 @@ export async function loadLearnerProgress(
     .filter((attempt): attempt is ProgressAttempt => attempt !== null);
 
   // Optional tables — ignore errors (treat as empty) when not yet migrated.
+  // Only submitted sessions count as completed quizzes (issued/abandoned ones
+  // don't). Exact count for the headline, bounded scan for the average.
+  const totalQuizzesResult = await supabase
+    .from("quiz_sessions")
+    .select("id", { count: "exact", head: true })
+    .eq("learner_id", learnerId)
+    .eq("status", "submitted");
+  const totalQuizzes = totalQuizzesResult.error ? 0 : totalQuizzesResult.count ?? 0;
+
   const sessionsResult = await supabase
     .from("quiz_sessions")
     .select("id, quiz_type, score, total_marks, percentage, created_at")
     .eq("learner_id", learnerId)
-    .order("created_at", { ascending: false });
+    .eq("status", "submitted")
+    .order("created_at", { ascending: false })
+    .limit(RECENT_SESSION_SCAN);
   const sessions: ProgressSession[] = sessionsResult.error
     ? []
     : ((sessionsResult.data ?? []) as unknown as SessionRow[]).map((row) => ({
@@ -158,15 +202,15 @@ export async function loadLearnerProgress(
   const latestDiagnostic = isDiagnosticSummary(reportPayload) ? reportPayload : null;
 
   const topicPerformance = calculateTopicPerformance(attempts);
-  const correctCount = attempts.filter((attempt) => attempt.isCorrect).length;
-  const overallAccuracy = attempts.length ? Math.round((correctCount / attempts.length) * 100) : 0;
+  // Accuracy from exact counts (whole history); average from submitted sessions.
+  const overallAccuracy = totalAttempts ? Math.round((correctCount / totalAttempts) * 100) : 0;
   const averageScore = sessions.length ? calculateAverageScore(sessions) : overallAccuracy;
 
   return {
     error: false,
-    hasData: attempts.length > 0 || sessions.length > 0,
-    totalQuizzes: sessions.length,
-    totalAttempts: attempts.length,
+    hasData: totalAttempts > 0 || totalQuizzes > 0,
+    totalQuizzes,
+    totalAttempts,
     averageScore,
     averageBasis: sessions.length ? "quiz" : "attempts",
     topicPerformance,

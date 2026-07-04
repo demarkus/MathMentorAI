@@ -5,6 +5,9 @@ import { createClient } from "@/lib/supabase/server";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { ResourceList, PendingResourcesNotice, type ResourceListItem } from "@/components/teacher/ResourceList";
 import { isResourceType, isMissingTableError } from "@/lib/math/teacher-resources";
+import { Pagination, parsePage } from "@/components/ui/Pagination";
+
+const PAGE_SIZE = 20;
 
 type ResourceRow = {
   id: string;
@@ -14,18 +17,30 @@ type ResourceRow = {
   created_at: string;
 };
 
-export default async function TeacherResourcesPage() {
+export default async function TeacherResourcesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const user = await requireRole("teacher");
+  const { page: pageParam } = await searchParams;
+  const page = parsePage(pageParam);
   const supabase = await createClient();
 
-  // Scoped to the current teacher. Errors (e.g. table not yet present) → empty.
-  const { data, error } = await supabase
+  // Scoped to the current teacher and paginated.
+  const from = (page - 1) * PAGE_SIZE;
+  const { data, error, count } = await supabase
     .from("teacher_resources")
-    .select("id, title, grade, resource_type, created_at")
+    .select("id, title, grade, resource_type, created_at", { count: "exact" })
     .eq("teacher_id", user.id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(from, from + PAGE_SIZE - 1);
 
   const tableMissing = isMissingTableError(error);
+  // A real DB error (not just the table being absent pre-migration) is surfaced,
+  // not silently shown as an empty list.
+  const loadFailed = Boolean(error) && !tableMissing;
+  const total = count ?? 0;
   const items: ResourceListItem[] = error
     ? []
     : ((data ?? []) as unknown as ResourceRow[]).map((row) => ({
@@ -51,7 +66,19 @@ export default async function TeacherResourcesPage() {
           </Link>
         </div>
 
-        {tableMissing ? <PendingResourcesNotice /> : <ResourceList items={items} />}
+        {tableMissing ? (
+          <PendingResourcesNotice />
+        ) : loadFailed ? (
+          <div className="rounded-2xl border border-line bg-white p-8 text-center">
+            <h2 className="text-lg font-semibold">We couldn’t load your resources</h2>
+            <p className="mt-2 text-sm text-muted">Something went wrong. Please refresh to try again.</p>
+          </div>
+        ) : (
+          <>
+            <ResourceList items={items} />
+            <Pagination basePath="/teacher/resources" params={{ page: pageParam }} page={page} pageSize={PAGE_SIZE} total={total} />
+          </>
+        )}
       </main>
     </>
   );
