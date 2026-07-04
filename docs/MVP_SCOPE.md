@@ -18,7 +18,7 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 
 ### Learner module
 - Topic catalogue (`/learner/topics`, `[slug]`) grouped by grade, with duplicate-slug handling.
-- Diagnostic quiz: balanced question selection, one-at-a-time flow, scoring, weak/strong topics, persisted report (with encoded-summary fallback).
+- Diagnostic quiz: balanced question selection, one-at-a-time flow, scoring, weak/strong topics, persisted RLS-owned report (results load only from the report; no unsigned fallback).
 - Topic practice: hints + worked solutions, immediate feedback, per-topic scoring, result page.
 - Progress dashboard: average score, topic performance, weak/strong topics, recent activity, recommended next topic.
 
@@ -45,7 +45,7 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 - **AI hints/explanations** — explanations come from seeded `solution_steps`, not a model.
 - **Symbolic answer checking** — answers are matched with deterministic string normalisation, not a CAS.
 - **PDF export** — teacher resources print via the browser; no server-side PDF.
-- **Integration / e2e tests** — none yet (unit tests exist via Vitest; see the README).
+- **Full symbolic/DB-side analytics** — progress uses bounded scans + COUNT aggregates, not a warehouse.
 - **Installed production email templates** — branded HTML is provided in `supabase/templates/` ([EMAIL_TEMPLATES.md](EMAIL_TEMPLATES.md)); pasting it into the Supabase dashboard is still pending.
 - **Analytics / event tracking** — none.
 - **Full user administration** (managing learners/parents/teachers from the admin UI) — not built.
@@ -65,7 +65,7 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 | All migrations applied to the target DB | ⚠️ Required before beta |
 | Payment collection | ❌ Roadmap |
 | Parent–learner linking | ❌ Roadmap |
-| Automated tests | ⚠️ Unit tests (Vitest); integration/e2e pending |
+| Automated tests | ✅ Unit (Vitest) + gated integration/RLS + Playwright E2E, all in CI |
 | Production email templates | ⚠️ Provided in `supabase/templates/`; install in dashboard |
 
-**Before inviting beta users:** apply all five migrations, run the seed, enable email/password auth, and complete the deployment smoke test in [DEPLOYMENT.md](DEPLOYMENT.md).
+**Before inviting beta users:** apply all twelve migrations (filename order), run the seed, enable email/password auth, and complete the deployment smoke test in [DEPLOYMENT.md](DEPLOYMENT.md).
