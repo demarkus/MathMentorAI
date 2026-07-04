@@ -17,7 +17,11 @@ export type IssuedSession = {
   grade: number | null;
   questionIds: string[];
   status: string | null;
+  expiresAt: string | null;
 };
+
+/** Default issued-session lifetime (minutes). Mirrors the DB safety-net default. */
+export const SESSION_TTL_MINUTES = 120;
 
 export type FinalizeAttempt = {
   questionId: string;
@@ -29,8 +33,17 @@ export type FinalizeAttempt = {
 /** Persists the exact issued question set as a new session. Returns its id. */
 export async function startSession(
   admin: SupabaseClient,
-  params: { learnerId: string; quizType: QuizType; topicId?: string | null; grade?: number | null; questionIds: string[] },
+  params: {
+    learnerId: string;
+    quizType: QuizType;
+    topicId?: string | null;
+    grade?: number | null;
+    questionIds: string[];
+    ttlMinutes?: number;
+  },
 ): Promise<string | null> {
+  const ttl = params.ttlMinutes ?? SESSION_TTL_MINUTES;
+  const expiresAt = new Date(Date.now() + ttl * 60_000).toISOString();
   const { data, error } = await admin
     .from("quiz_sessions")
     .insert({
@@ -40,6 +53,7 @@ export async function startSession(
       topic_id: params.topicId ?? null,
       grade: params.grade ?? null,
       question_ids: params.questionIds,
+      expires_at: expiresAt,
     })
     .select("id")
     .single();
@@ -55,7 +69,7 @@ export async function loadSession(
 ): Promise<IssuedSession | null> {
   const { data, error } = await admin
     .from("quiz_sessions")
-    .select("id, learner_id, quiz_type, topic_id, grade, question_ids, status")
+    .select("id, learner_id, quiz_type, topic_id, grade, question_ids, status, expires_at")
     .eq("id", sessionId)
     .maybeSingle();
   if (error || !data) return null;
@@ -67,6 +81,7 @@ export async function loadSession(
     grade: number | null;
     question_ids: string[] | null;
     status: string | null;
+    expires_at: string | null;
   };
   if (row.learner_id !== learnerId) return null; // ownership
   return {
@@ -77,7 +92,31 @@ export async function loadSession(
     grade: row.grade,
     questionIds: Array.isArray(row.question_ids) ? row.question_ids : [],
     status: row.status,
+    expiresAt: row.expires_at,
   };
+}
+
+/**
+ * Pure guard for whether an issued session may still be started/run/first-submitted
+ * for the expected quiz type. Rejects: not found (null), wrong type, already
+ * submitted, or past expiry. `now` is injectable for tests.
+ */
+export function isSessionRunnable(
+  session: IssuedSession | null,
+  expectedType: QuizType,
+  now: number = Date.now(),
+): boolean {
+  if (!session) return false;
+  if (session.quizType !== expectedType) return false;
+  if (session.status !== "issued") return false;
+  if (session.expiresAt && new Date(session.expiresAt).getTime() < now) return false;
+  return true;
+}
+
+/** True when an issued session is past its expiry. Submitted sessions are never expired for retry. */
+export function isSessionExpired(session: IssuedSession, now: number = Date.now()): boolean {
+  if (session.status === "submitted") return false;
+  return Boolean(session.expiresAt && new Date(session.expiresAt).getTime() < now);
 }
 
 /**

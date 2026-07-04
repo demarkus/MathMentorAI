@@ -85,7 +85,8 @@ create table public.quiz_sessions (
   topic_id uuid references public.topics(id) on delete set null,
   grade integer check (grade in (9, 10)),
   question_ids uuid[],
-  submission_key uuid
+  submission_key uuid,
+  expires_at timestamptz not null default (now() + interval '2 hours')
 );
 
 create table public.attempts (
@@ -136,6 +137,8 @@ create index attempts_learner_created_idx on public.attempts (learner_id, create
 create index attempts_quiz_session_idx on public.attempts (quiz_session_id);
 create index questions_topic_active_idx on public.questions (topic_id, is_active);
 create index quiz_sessions_learner_created_idx on public.quiz_sessions (learner_id, created_at desc);
+create index quiz_sessions_learner_status_idx on public.quiz_sessions (learner_id, status);
+create index quiz_sessions_status_expires_idx on public.quiz_sessions (status, expires_at);
 create unique index quiz_sessions_submission_key_key
   on public.quiz_sessions (submission_key) where submission_key is not null;
 create index reports_learner_created_idx on public.reports (learner_id, created_at desc);
@@ -364,3 +367,24 @@ revoke all on function public.finalize_quiz_submission(
 grant execute on function public.finalize_quiz_submission(
   uuid, uuid, uuid, numeric, numeric, integer, public.report_type, jsonb, jsonb
 ) to service_role;
+
+-- Removes abandoned issued sessions past expiry (never touches submitted rows).
+-- Run on a schedule (Supabase scheduled function / pg_cron). service_role only.
+create or replace function public.cleanup_expired_sessions()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_deleted integer;
+begin
+  delete from public.quiz_sessions
+    where status is distinct from 'submitted'
+      and expires_at < now();
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+end;
+$$;
+revoke all on function public.cleanup_expired_sessions() from public, anon, authenticated;
+grant execute on function public.cleanup_expired_sessions() to service_role;
