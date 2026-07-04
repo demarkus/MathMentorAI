@@ -45,7 +45,8 @@ Teacher-generated resources.
 
 ### `beta_leads` *(migration `…182712`)*
 Public beta sign-ups.
-- `id`, `full_name`, `email`, `phone`, `role` (check: `learner` | `parent` | `teacher` | `tutor` | `school_admin`), `selected_plan`, `message`, `created_at`.
+- `id`, `full_name`, `email`, `phone`, `role` (check: `learner` | `parent` | `teacher` | `tutor` | `school_admin`), `selected_plan`, `message`, `ip` (inet, anti-abuse — admin-only), `created_at`.
+- Length-capped (`beta_leads_len_ck`). **Direct insert is revoked**; all writes go through `submit_beta_lead()` (validates, rate-limits per email/IP over 10 min, dedupes per email+plan).
 
 ## Migrations (apply in filename order)
 
@@ -62,6 +63,7 @@ Public beta sign-ups.
 | 9 | `20260704110237_enforce_question_topic_grade.sql` | composite FK `questions(topic_id, grade)` → `topics(id, grade)` so a question's grade must match its topic's grade |
 | 10 | `20260704113638_tighten_rls_role_semantics.sql` | insert/update RLS on `learner_profiles` (role `student`) and `teacher_resources` (role `teacher`) now require the matching profile role, not just ownership |
 | 11 | `20260704115128_add_session_expiry_and_cleanup.sql` | `quiz_sessions.expires_at` (default +2h) + `(learner_id, status)` / `(status, expires_at)` indexes + `cleanup_expired_sessions()` |
+| 12 | `20260704130052_harden_beta_leads.sql` | `beta_leads` length caps + `ip` column; revoke direct insert; `submit_beta_lead()` (validate + rate-limit + dedupe) |
 
 All migrations are **additive and idempotent** (guards on tables, indexes, and policies).
 
@@ -87,10 +89,10 @@ RLS is enabled on **every** table. Summary of who can do what:
 | `attempts` | — | select **own** (no client insert) | own only |
 | `reports` | — | select **own** (no client insert) | own only |
 | `teacher_resources` | — | select/delete **own**; insert/update own **only if role = teacher** | **select all** |
-| `beta_leads` | **insert only** | insert | **select all** |
+| `beta_leads` | — (write via `submit_beta_lead()` only) | — (write via `submit_beta_lead()` only) | **select all** |
 
 Notes:
 - `questions` answer keys (`answer_text`, `hint`, `solution_steps`) are **not granted** to anon/authenticated; only render columns are. `profiles.role`/`email` are **not client-updatable**.
 - `attempts`/`quiz_sessions`/`reports` **cannot be inserted by clients**; writes go through the trusted, atomic, idempotent `finalize_quiz_submission()` function (`service_role` only), and quiz sessions are created server-side with a persisted issued question set.
 - Server code reaches answer keys / writes via the **service-role client**, only ever after `requireRole(...)` and server-derived ownership.
-- Functions: `handle_new_user` (trigger), `complete_onboarding` (authenticated), `finalize_quiz_submission` (service_role only), `cleanup_expired_sessions` (service_role only — deletes abandoned issued sessions past expiry; run on a schedule).
+- Functions: `handle_new_user` (trigger), `complete_onboarding` (authenticated), `finalize_quiz_submission` (service_role only), `cleanup_expired_sessions` (service_role only — deletes abandoned issued sessions past expiry; run on a schedule), `submit_beta_lead` (anon/authenticated — the only beta-lead write path; validates, rate-limits, dedupes).

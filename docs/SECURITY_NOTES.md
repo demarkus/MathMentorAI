@@ -31,13 +31,13 @@ RLS is enabled on all tables; policies are owner-scoped. See [DATABASE.md](DATAB
 - `quiz_sessions`, `attempts`, `reports` — a user can **read** only their own rows; **client INSERT is revoked**. Writes go through `finalize_quiz_submission()` (service_role only, atomic + idempotent).
 - `topics` are public; **active** `questions` are public for **render columns only** — `answer_text`, `hint`, `solution_steps` are withheld from anon/authenticated.
 - `teacher_resources` — owner (`teacher_id`) only; **insert/update additionally require the profile role to be `teacher`**; admins may select all.
-- `beta_leads` — public **insert** only; select is admin-only.
+- `beta_leads` — **no direct insert**; the public writes only through `submit_beta_lead()` (validates lengths, rate-limits per email/IP over 10 min, dedupes per email+plan). Select is admin-only; the stored `ip` is admin-only.
 
 ## Data-exposure posture
 
 - **Parent reports do not expose learner data.** `/parent/reports` renders placeholders and queries no learner data; `/parent/reports/[learnerId]` intentionally ignores the `learnerId` param and performs no query. This is by design until secure linking exists.
 - **Teacher resources are owner-scoped.** List/detail queries filter by `teacher_id`; the detail route 404s on non-owned ids; RLS is the backstop.
-- **Beta leads are not publicly readable.** The public can submit but cannot list or read submissions.
+- **Beta leads are not publicly readable, and the form is abuse-hardened.** The public can submit but cannot list or read submissions. Submission goes through the trusted `submit_beta_lead()` function (direct insert revoked), which enforces server-side length caps, per-email/IP rate limiting (5 / 10 min), and per-email+plan duplicate suppression; the app validates the same and pins `selected_plan` to a canonical plan id.
 - **Answer keys are not exposed.** `answer_text`, `hint`, `solution_steps` are withheld from the Data API (column-scoped SELECT grant); grading, worksheet memos, and the practice reveal read them server-side via the service role, and the reveal is bound to the learner's issued session.
 - **Assessment results cannot be forged.** Quiz submission runs through a trusted, issued-session-bound path: answers are accepted only for the session's persisted question set, scored server-side, and written atomically via `finalize_quiz_submission()`; retries are idempotent.
 - **Sessions are issued only by an explicit action, and expire.** The diagnostic/practice pages create no database rows during a GET render — issuance happens in a Server Action (`startDiagnostic`/`startPractice`) triggered by an explicit click, so a prefetch or refresh never creates a session. Issued sessions carry `expires_at` (default +2h); the run view and submit/check reject sessions that are missing, wrong-owner, wrong-type, already-submitted, or expired. Abandoned issued rows are reclaimed by `cleanup_expired_sessions()` (service_role, run on a schedule); submitted history is never touched.
