@@ -3,9 +3,9 @@
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
-import { gradePractice, explanationFor, type PracticeQuestion } from "@/lib/math/practice";
+import { gradePractice, explanationFor, PRACTICE_MAX_QUESTIONS, type PracticeQuestion } from "@/lib/math/practice";
 import { isAnswerCorrect } from "@/lib/math/check-answer";
-import { loadSession, finalizeSession, submittedMatchesIssued } from "@/lib/quiz/session";
+import { loadSession, startSession, finalizeSession, submittedMatchesIssued, isSessionExpired } from "@/lib/quiz/session";
 import type { QuizAnswer, QuizCheckResult } from "@/components/quiz/QuizShell";
 
 type QuestionRow = {
@@ -45,6 +45,51 @@ async function learnerId(userId: string): Promise<string | undefined> {
 }
 
 /**
+ * Explicitly issues a practice session for a topic + grade and redirects to the
+ * run view. A mutation (invoked by an explicit click), never a GET render, so
+ * navigating to or prefetching the topic page creates no row. topicId/slug/grade
+ * are bound on the server from the already-resolved topic.
+ */
+export async function startPractice(
+  topicId: string,
+  topicSlug: string,
+  grade: number,
+): Promise<{ error?: string } | void> {
+  const user = await requireRole("learner");
+  const id = await learnerId(user.id);
+  if (!id) redirect("/onboarding");
+
+  const admin = createServiceRoleClient();
+  if (!admin) return { error: "We couldn’t start this practice right now. Please try again." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("questions")
+    .select("id")
+    .eq("topic_id", topicId)
+    .eq("is_active", true)
+    .order("marks", { ascending: true })
+    .limit(PRACTICE_MAX_QUESTIONS);
+  if (error) return { error: "We couldn’t load the questions. Please try again." };
+
+  const questionIds = ((data ?? []) as { id: string }[]).map((row) => row.id);
+  if (questionIds.length === 0) {
+    return { error: "There aren’t any active questions for this topic right now. Please check back soon." };
+  }
+
+  const sessionId = await startSession(admin, {
+    learnerId: id,
+    quizType: "practice",
+    topicId,
+    grade,
+    questionIds,
+  });
+  if (!sessionId) return { error: "We couldn’t start this practice right now. Please try again." };
+
+  redirect(`/learner/practice/${topicSlug}?grade=${grade}&session=${sessionId}`);
+}
+
+/**
  * Marks a topic practice run. `sessionId` and `topicSlug` are bound on the
  * server; the client supplies only the answers and an idempotency key. Answers
  * are accepted only for the issued session's question set, matching the topic
@@ -65,6 +110,7 @@ export async function submitPractice(
 
   const session = await loadSession(admin, String(sessionId ?? ""), id);
   if (!session || session.quizType !== "practice") return { error: "This practice session is no longer valid." };
+  if (isSessionExpired(session)) return { error: "This practice has expired. Please start a new one." };
 
   const submittedIds = answers.map((entry) => entry.questionId);
   if (!submittedMatchesIssued(submittedIds, session.questionIds)) {
@@ -130,6 +176,7 @@ export async function checkPracticeAnswer(
 
   const session = await loadSession(admin, String(sessionId ?? ""), id);
   if (!session || session.quizType !== "practice") return { error: "This practice session is no longer valid." };
+  if (isSessionExpired(session)) return { error: "This practice has expired. Please start a new one." };
   if (!session.questionIds.includes(String(questionId ?? ""))) {
     return { error: "That question isn’t part of this practice set." };
   }

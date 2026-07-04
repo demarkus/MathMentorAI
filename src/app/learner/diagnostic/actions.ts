@@ -3,8 +3,8 @@
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
-import { gradeDiagnostic, type DiagnosticQuestion } from "@/lib/math/diagnostic";
-import { loadSession, finalizeSession, submittedMatchesIssued } from "@/lib/quiz/session";
+import { gradeDiagnostic, selectDiagnosticQuestions, type DiagnosticQuestion } from "@/lib/math/diagnostic";
+import { loadSession, startSession, finalizeSession, submittedMatchesIssued, isSessionExpired } from "@/lib/quiz/session";
 import type { QuizAnswer } from "@/components/quiz/QuizShell";
 
 type QuestionRow = {
@@ -34,6 +34,64 @@ function toDiagnosticQuestion(row: QuestionRow): DiagnosticQuestion {
 }
 
 /**
+ * Explicitly issues a diagnostic session for the signed-in learner and redirects
+ * to the run view. This is a mutation (invoked by an explicit click), never a GET
+ * render, so navigating to or prefetching /learner/diagnostic creates no row.
+ */
+export async function startDiagnostic(): Promise<{ error?: string } | void> {
+  const user = await requireRole("learner");
+  const supabase = await createClient();
+
+  const { data: learner } = await supabase
+    .from("learner_profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const learnerId = (learner as { id: string } | null)?.id;
+  if (!learnerId) redirect("/onboarding");
+
+  const admin = createServiceRoleClient();
+  if (!admin) return { error: "We couldn’t start your diagnostic right now. Please try again." };
+
+  // Render columns only — answer keys stay server-side and are read at grading.
+  const { data, error } = await supabase
+    .from("questions")
+    .select("id, grade, marks, difficulty, question_text, topic_id, topics(name, slug)")
+    .eq("is_active", true)
+    .order("grade", { ascending: true });
+  if (error) return { error: "We couldn’t load the diagnostic. Please try again." };
+
+  const all: DiagnosticQuestion[] = ((data ?? []) as unknown as QuestionRow[]).map((row) => {
+    const topic = Array.isArray(row.topics) ? row.topics[0] : row.topics;
+    return {
+      id: row.id,
+      question_text: row.question_text,
+      answer_text: "",
+      difficulty: row.difficulty,
+      marks: row.marks,
+      grade: row.grade,
+      topic_id: row.topic_id,
+      topicName: topic?.name ?? "Algebra",
+      topicSlug: topic?.slug ?? "",
+    };
+  });
+
+  const selected = selectDiagnosticQuestions(all);
+  if (selected.length === 0) {
+    return { error: "There aren’t any active questions to build a diagnostic right now. Please check back soon." };
+  }
+
+  const sessionId = await startSession(admin, {
+    learnerId,
+    quizType: "diagnostic",
+    questionIds: selected.map((question) => question.id),
+  });
+  if (!sessionId) return { error: "We couldn’t start your diagnostic right now. Please try again." };
+
+  redirect(`/learner/diagnostic?session=${sessionId}`);
+}
+
+/**
  * Marks a diagnostic. `sessionId` is bound on the server; the client supplies
  * only the answers and an idempotency key. Scoring reads the answer keys via the
  * service role, and every write goes through the trusted finalize function.
@@ -59,6 +117,7 @@ export async function submitDiagnostic(
 
   const session = await loadSession(admin, String(sessionId ?? ""), learnerId);
   if (!session || session.quizType !== "diagnostic") return { error: "This diagnostic session is no longer valid." };
+  if (isSessionExpired(session)) return { error: "This diagnostic has expired. Please start a new one." };
 
   const submittedIds = answers.map((entry) => entry.questionId);
   if (!submittedMatchesIssued(submittedIds, session.questionIds)) {

@@ -6,21 +6,18 @@ import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { TopicCard, type CatalogueTopic } from "@/components/dashboard/TopicCard";
 import { QuizShell, type QuizShellQuestion } from "@/components/quiz/QuizShell";
-import { PRACTICE_MAX_QUESTIONS } from "@/lib/math/practice";
-import { startSession } from "@/lib/quiz/session";
-import { submitPractice, checkPracticeAnswer } from "../actions";
+import { QuizStartForm } from "@/components/quiz/QuizStartForm";
+import { loadSession, isSessionRunnable } from "@/lib/quiz/session";
+import { startPractice, submitPractice, checkPracticeAnswer } from "../actions";
 
 const VALID_GRADES = [9, 10];
 
-// Answer keys are not selected here — they are read server-side (checkPracticeAnswer
-// / submitPractice) so they never enter the client bundle.
-type QuestionRow = {
+type RenderRow = {
   id: string;
   grade: number;
   marks: number;
   difficulty: string;
   question_text: string;
-  topic_id: string;
 };
 
 function BackLink() {
@@ -36,13 +33,91 @@ export default async function TopicPracticePage({
   searchParams,
 }: {
   params: Promise<{ topicSlug: string }>;
-  searchParams: Promise<{ grade?: string }>;
+  searchParams: Promise<{ grade?: string; session?: string }>;
 }) {
   const user = await requireRole("learner");
   const { topicSlug } = await params;
-  const { grade } = await searchParams;
+  const { grade, session: sessionId } = await searchParams;
 
   const supabase = await createClient();
+  const { data: learner } = await supabase
+    .from("learner_profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const learnerId = (learner as { id: string } | null)?.id;
+  if (!learnerId) redirect("/onboarding");
+
+  // ---- Run view: an explicitly-started session is being taken. GET only reads.
+  if (sessionId) {
+    const admin = createServiceRoleClient();
+    const session = admin ? await loadSession(admin, sessionId, learnerId) : null;
+    if (!isSessionRunnable(session, "practice")) redirect(`/learner/practice/${topicSlug}`);
+
+    // Authoritative topic from the session, not the URL.
+    const { data: topicRow } = await supabase
+      .from("topics")
+      .select("id, grade, name, slug")
+      .eq("id", session!.topicId ?? "")
+      .maybeSingle();
+    const topic = topicRow as { id: string; grade: number; name: string; slug: string } | null;
+
+    const { data, error } = await supabase
+      .from("questions")
+      .select("id, grade, marks, difficulty, question_text")
+      .in("id", session!.questionIds)
+      .eq("is_active", true);
+
+    if (error || !topic) {
+      return (
+        <div className="space-y-8">
+          <BackLink />
+          <div className="rounded-2xl border border-line bg-white p-8 text-center">
+            <h2 className="text-lg font-semibold">We couldn’t load this practice</h2>
+            <p className="mt-2 text-sm text-muted">Something went wrong fetching your questions. Please go back and try again.</p>
+          </div>
+        </div>
+      );
+    }
+
+    const byId = new Map(((data ?? []) as unknown as RenderRow[]).map((row) => [row.id, row]));
+    if (byId.size !== session!.questionIds.length) redirect(`/learner/practice/${topicSlug}`);
+
+    const quizQuestions: QuizShellQuestion[] = session!.questionIds.map((id) => {
+      const row = byId.get(id)!;
+      return {
+        id: row.id,
+        question_text: row.question_text,
+        difficulty: row.difficulty,
+        marks: row.marks,
+        topicName: topic.name,
+        grade: row.grade,
+      };
+    });
+
+    return (
+      <div className="mx-auto max-w-3xl space-y-6">
+        <BackLink />
+        <div>
+          <p className="text-sm font-semibold text-brand">Grade {topic.grade} practice</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">{topic.name}</h1>
+          <p className="mt-3 text-muted">
+            Answer {quizQuestions.length} question{quizQuestions.length === 1 ? "" : "s"}. Check each answer to see the
+            worked explanation, then submit to save your results.
+          </p>
+        </div>
+        <QuizShell
+          questions={quizQuestions}
+          onSubmit={submitPractice.bind(null, sessionId, topic.slug)}
+          onCheck={checkPracticeAnswer.bind(null, sessionId)}
+          submitLabel="Finish & see results"
+          reveal
+        />
+      </div>
+    );
+  }
+
+  // ---- Intro view: resolve the topic, then offer an explicit Start button.
   let topicQuery = supabase
     .from("topics")
     .select("id, grade, name, slug, description, display_order")
@@ -89,17 +164,26 @@ export default async function TopicPracticePage({
   }
 
   const topic = matchedTopics[0];
-  const { data: questionData } = await supabase
+  const { count, error: countError } = await supabase
     .from("questions")
-    .select("id, grade, marks, difficulty, question_text, topic_id")
+    .select("id", { count: "exact", head: true })
     .eq("topic_id", topic.id)
-    .eq("is_active", true)
-    .order("marks", { ascending: true })
-    .limit(PRACTICE_MAX_QUESTIONS);
+    .eq("is_active", true);
 
-  const questions = (questionData ?? []) as unknown as QuestionRow[];
+  if (countError) {
+    return (
+      <div className="space-y-8">
+        <BackLink />
+        <DashboardHeader eyebrow={`Grade ${topic.grade} practice`} title={topic.name} subtitle={topic.description} />
+        <div className="rounded-2xl border border-line bg-white p-8 text-center">
+          <h2 className="text-lg font-semibold">We couldn’t load this topic</h2>
+          <p className="mt-2 text-sm text-muted">Please refresh to try again.</p>
+        </div>
+      </div>
+    );
+  }
 
-  if (questions.length === 0) {
+  if (!count || count === 0) {
     return (
       <div className="space-y-8">
         <BackLink />
@@ -112,69 +196,19 @@ export default async function TopicPracticePage({
     );
   }
 
-  const { data: learner } = await supabase
-    .from("learner_profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  const learnerId = (learner as { id: string } | null)?.id;
-  if (!learnerId) redirect("/onboarding");
-
-  // Persist the exact issued set (topic + grade bound) as a session. Submit and
-  // the per-question reveal are validated against it server-side.
-  const admin = createServiceRoleClient();
-  const sessionId = admin
-    ? await startSession(admin, {
-        learnerId,
-        quizType: "practice",
-        topicId: topic.id,
-        grade: topic.grade,
-        questionIds: questions.map((question) => question.id),
-      })
-    : null;
-  if (!sessionId) {
-    return (
-      <div className="space-y-8">
-        <BackLink />
-        <DashboardHeader eyebrow={`Grade ${topic.grade} practice`} title={topic.name} subtitle={topic.description} />
-        <div className="rounded-2xl border border-line bg-white p-8 text-center">
-          <h2 className="text-lg font-semibold">We couldn’t start this practice</h2>
-          <p className="mt-2 text-sm text-muted">Something went wrong preparing your questions. Please go back and try again.</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Only render fields reach the client. Correctness + answer + explanation come
-  // from the trusted checkPracticeAnswer action after each check.
-  const quizQuestions: QuizShellQuestion[] = questions.map((question) => ({
-    id: question.id,
-    question_text: question.question_text,
-    difficulty: question.difficulty,
-    marks: question.marks,
-    topicName: topic.name,
-    grade: question.grade,
-  }));
-
-  const onSubmit = submitPractice.bind(null, sessionId, topic.slug);
-
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <BackLink />
       <div>
         <p className="text-sm font-semibold text-brand">Grade {topic.grade} practice</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">{topic.name}</h1>
-        <p className="mt-3 text-muted">
-          Answer {quizQuestions.length} question{quizQuestions.length === 1 ? "" : "s"}. Check each answer to see the
-          worked explanation, then submit to save your results.
-        </p>
+        <p className="mt-3 text-muted">{topic.description}</p>
+        <p className="mt-2 text-muted">Check each answer for a worked explanation as you go. Start when you’re ready.</p>
       </div>
-      <QuizShell
-        questions={quizQuestions}
-        onSubmit={onSubmit}
-        onCheck={checkPracticeAnswer.bind(null, sessionId)}
-        submitLabel="Finish & see results"
-        reveal
+      <QuizStartForm
+        action={startPractice.bind(null, topic.id, topic.slug, topic.grade)}
+        label="Start practice"
+        pendingLabel="Starting…"
       />
     </div>
   );
