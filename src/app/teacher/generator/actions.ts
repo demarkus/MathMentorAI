@@ -16,6 +16,7 @@ import {
   type SourceQuestion,
   type WorksheetContent,
 } from "@/lib/math/teacher-resources";
+import { cryptoRng } from "@/lib/util/shuffle";
 
 type QuestionRow = {
   id: string;
@@ -113,7 +114,8 @@ export async function generateWorksheet(request: GeneratorRequest): Promise<Gene
   if (questionError) return { error: "We couldn’t load questions. Please try again." };
 
   const source = ((questionData ?? []) as unknown as QuestionRow[]).map(toSource);
-  const selected = selectQuestions(source, count, difficulty);
+  // Vary which questions land in each generated resource (crypto-seeded).
+  const selected = selectQuestions(source, count, difficulty, cryptoRng());
   if (selected.length === 0) {
     return {
       error: "No active questions are available for this topic and difficulty. Try a different grade, topic, or difficulty.",

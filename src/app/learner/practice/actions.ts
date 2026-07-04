@@ -3,8 +3,15 @@
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
-import { gradePractice, explanationFor, PRACTICE_MAX_QUESTIONS, type PracticeQuestion } from "@/lib/math/practice";
+import {
+  gradePractice,
+  explanationFor,
+  PRACTICE_MAX_QUESTIONS,
+  PRACTICE_CANDIDATE_LIMIT,
+  type PracticeQuestion,
+} from "@/lib/math/practice";
 import { isAnswerCorrect } from "@/lib/math/check-answer";
+import { selectBalancedByDifficulty, cryptoRng } from "@/lib/util/shuffle";
 import { loadSession, startSession, finalizeSession, submittedMatchesIssued, isSessionExpired } from "@/lib/quiz/session";
 import type { QuizAnswer, QuizCheckResult } from "@/components/quiz/QuizShell";
 
@@ -63,16 +70,20 @@ export async function startPractice(
   if (!admin) return { error: "We couldn’t start this practice right now. Please try again." };
 
   const supabase = await createClient();
+  // Render/meta columns only (id + difficulty) — never answer keys. A bounded
+  // candidate pool is fetched, then a varied, difficulty-balanced subset is
+  // selected server-side so runs aren't identical.
   const { data, error } = await supabase
     .from("questions")
-    .select("id")
+    .select("id, difficulty")
     .eq("topic_id", topicId)
     .eq("is_active", true)
-    .order("marks", { ascending: true })
-    .limit(PRACTICE_MAX_QUESTIONS);
+    .limit(PRACTICE_CANDIDATE_LIMIT);
   if (error) return { error: "We couldn’t load the questions. Please try again." };
 
-  const questionIds = ((data ?? []) as { id: string }[]).map((row) => row.id);
+  const candidates = (data ?? []) as { id: string; difficulty: string }[];
+  const selected = selectBalancedByDifficulty(candidates, PRACTICE_MAX_QUESTIONS, cryptoRng());
+  const questionIds = selected.map((row) => row.id);
   if (questionIds.length === 0) {
     return { error: "There aren’t any active questions for this topic right now. Please check back soon." };
   }

@@ -1,7 +1,11 @@
 import { isAnswerCorrect } from "./check-answer";
+import { selectBalancedByDifficulty } from "@/lib/util/shuffle";
 
 export const PRACTICE_MIN_QUESTIONS = 5;
 export const PRACTICE_MAX_QUESTIONS = 10;
+// Upper bound on candidates scanned before selection, so a topic with many
+// questions still yields a varied set without an unbounded read.
+export const PRACTICE_CANDIDATE_LIMIT = 60;
 
 export type PracticeQuestion = {
   id: string;
@@ -46,11 +50,17 @@ export function explanationFor(question: { solution_steps?: string[]; hint?: str
   return question.hint ? [question.hint] : [];
 }
 
-/** Caps the question set for a practice run (questions are already topic-filtered). */
+/**
+ * Selects the question set for a practice run (questions are already
+ * topic-filtered). Pass `rng` (production: cryptoRng) to vary which questions are
+ * chosen while keeping difficulty balance; omit it for a stable, capped slice.
+ */
 export function selectPracticeQuestions(
   all: PracticeQuestion[],
   max = PRACTICE_MAX_QUESTIONS,
+  rng?: () => number,
 ): PracticeQuestion[] {
+  if (rng) return selectBalancedByDifficulty(all, max, rng);
   return all.slice(0, max);
 }
 
