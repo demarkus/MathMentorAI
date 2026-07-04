@@ -13,7 +13,7 @@ Sequenced from the current MVP toward a monetised beta. Items reflect the [curre
 
 - **Secure parent–learner linking.** Learner-email invite + learner confirmation; unlock the parent report pages (currently placeholders) to read *only* linked learners' data under RLS.
 - **Real parent progress reports.** Populate `TopicRiskTable` / `RecommendationList` from the linked learner's `reports` and `attempts`.
-- **First automated tests.** Unit tests for the deterministic logic (`check-answer`, `diagnostic`, `practice`, `progress`) and a couple of auth/role smoke tests.
+- **Grow test coverage.** A unit suite (Vitest) for the deterministic logic, a gated integration/RLS suite, and a Playwright E2E suite already run in CI. Extend coverage as parent linking, payments, and symbolic checking land.
 - **Basic analytics.** Funnel + core-loop events (signup → diagnostic → practice → subscribe).
 
 ## Next 90 days — depth and polish
@@ -41,4 +41,5 @@ Assumes payments live by month 1 and parent linking by month 2. Prices from `src
 
 - Payments and parent linking are the two gates to monetisation; both are currently **not implemented**.
 - Symbolic/AI features should not regress the current deterministic grading — keep them additive and testable.
-- Test coverage is currently zero; add tests before large logic changes.
+- Automated tests exist (unit + gated integration/RLS + E2E in CI); keep them green and extend coverage before large logic changes.
+- **CAPS alignment is self-declared, not independently reviewed.** Topics carry a `curriculum_tag` of `CAPS`, but no external curriculum review has been done yet — see [CURRICULUM_VALIDATION.md](CURRICULUM_VALIDATION.md) for the evidence still required before making a stronger claim.

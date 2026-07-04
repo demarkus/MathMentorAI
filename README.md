@@ -2,6 +2,8 @@
 
 **Math Mentor AI** is a CAPS-aligned **Grade 9 & 10 Algebra Booster** for South African learners. It helps learners find their weak algebra topics with a short diagnostic, practise them with hints and worked solutions, and see measurable progress — while giving parents, teachers, and admins their own tools around that core.
 
+> **CAPS alignment is self-declared.** Content is structured around and tagged CAPS Grade 9–10 algebra, but has not yet been independently curriculum-reviewed. See [docs/CURRICULUM_VALIDATION.md](docs/CURRICULUM_VALIDATION.md).
+
 The product is organised into four role-based modules:
 
 - **Learner** — topic catalogue, diagnostic quiz, topic practice, and a progress dashboard.

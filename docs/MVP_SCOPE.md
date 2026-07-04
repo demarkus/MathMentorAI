@@ -58,7 +58,7 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 | Role protection on all protected routes | ✅ |
 | RLS enabled + owner-scoped on all sensitive tables | ✅ |
 | Learner core loop (diagnostic → practice → progress) | ✅ |
-| CAPS seed content (14 topics, 108 questions) | ✅ |
+| CAPS-tagged seed content (14 topics, 108 questions)¹ | ✅ |
 | Teacher generator + print | ✅ |
 | Admin question management | ✅ |
 | Lead capture for pricing/beta | ✅ |
@@ -68,4 +68,6 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 | Automated tests | ✅ Unit (Vitest) + gated integration/RLS + Playwright E2E, all in CI |
 | Production email templates | ⚠️ Provided in `supabase/templates/`; install in dashboard |
 
-**Before inviting beta users:** apply all twelve migrations (filename order), run the seed, enable email/password auth, and complete the deployment smoke test in [DEPLOYMENT.md](DEPLOYMENT.md).
+¹ "CAPS" here means the content is **tagged** CAPS and structured around CAPS Grade 9–10 algebra — a self-declared label, **not** an independently curriculum-reviewed alignment. See [CURRICULUM_VALIDATION.md](CURRICULUM_VALIDATION.md).
+
+**Before inviting beta users:** apply every migration (filename order), run the seed, enable email/password auth, and complete the deployment smoke test in [DEPLOYMENT.md](DEPLOYMENT.md).

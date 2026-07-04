@@ -6,6 +6,8 @@ Make Grade 9 and Grade 10 algebra feel manageable for South African learners by 
 
 Math Mentor AI is a **CAPS-aligned Grade 9 & 10 Algebra Booster**. The MVP deliberately does one subject band well rather than trying to cover the whole curriculum.
 
+> "CAPS-aligned" here means the content is **structured around and tagged** CAPS Grade 9–10 algebra — a self-declared alignment, **not** an independently curriculum-reviewed one. The evidence still required for a stronger claim is tracked in [CURRICULUM_VALIDATION.md](CURRICULUM_VALIDATION.md). Do not describe the content as verified/approved CAPS until that review exists.
+
 ## Core value proposition
 
 - **Diagnose, don't guess.** A short diagnostic identifies which algebra topics need attention first.
