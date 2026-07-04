@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 import { isBetaRole, isPlanId } from "@/lib/marketing/plans";
 
 export type BetaLeadInput = {
@@ -20,7 +20,17 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Server-side length caps (mirrored by the DB constraint + submit function).
 const MAX = { name: 120, email: 254, phone: 40, plan: 64, message: 2000 };
 
-/** Best-effort client IP for anti-abuse. Behind a proxy/CDN use x-forwarded-for. */
+/**
+ * Server-derived client IP for anti-abuse rate limiting.
+ *
+ * TRUST BOUNDARY: `x-forwarded-for` / `x-real-ip` are only trustworthy when the
+ * app sits behind a proxy/CDN that OVERWRITES them with the real client IP (e.g.
+ * Vercel, Cloudflare). Without such a proxy a client could spoof the header, so
+ * the value must be treated as untrusted. Either way the IP is derived here on
+ * the server and passed to the (now service-role-only) RPC — an anonymous Data
+ * API caller can no longer supply `p_ip` directly. The safe fallback is null, in
+ * which case the DB still enforces the per-email rate limit and dedup.
+ */
 async function clientIp(): Promise<string | null> {
   const h = await headers();
   const forwarded = h.get("x-forwarded-for");
@@ -29,11 +39,12 @@ async function clientIp(): Promise<string | null> {
 }
 
 /**
- * Persists a public beta sign-up. Runs under the anon/authenticated session (no
- * service role), calling the trusted submit_beta_lead() function, which validates
- * input, rate-limits (per email/IP), and suppresses duplicates (per email+plan)
- * server-side. Direct inserts to beta_leads are revoked, so the checks can't be
- * bypassed. Inputs are also validated here for friendly errors.
+ * Persists a public beta sign-up. The trusted submit_beta_lead() function is now
+ * service-role-only, so this calls it via the service-role client (never the anon
+ * session). The function validates input, enforces the canonical plan allow-list,
+ * rate-limits (per email/IP, advisory-locked), and suppresses duplicates
+ * (per email+plan, via a unique index) — all concurrency-safe. Inputs are also
+ * validated here for friendly errors.
  */
 export async function submitBetaLead(input: BetaLeadInput): Promise<BetaLeadResult> {
   const full_name = String(input?.full_name ?? "").trim();
@@ -56,8 +67,11 @@ export async function submitBetaLead(input: BetaLeadInput): Promise<BetaLeadResu
   if (message.length > MAX.message) return { error: "Please shorten your message (2000 characters max)." };
 
   const ip = await clientIp();
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("submit_beta_lead", {
+  const admin = createServiceRoleClient();
+  if (!admin) {
+    return { error: "We couldn’t submit your request just now. Please try again in a moment." };
+  }
+  const { data, error } = await admin.rpc("submit_beta_lead", {
     p_full_name: full_name,
     p_email: email,
     p_role: role,
@@ -70,8 +84,12 @@ export async function submitBetaLead(input: BetaLeadInput): Promise<BetaLeadResu
   if (error) {
     return { error: "We couldn’t submit your request just now. Please try again in a moment." };
   }
-  if (String(data ?? "") === "rate_limited") {
+  const status = String(data ?? "");
+  if (status === "rate_limited") {
     return { error: "You’ve submitted a few times already. Please try again in a little while." };
+  }
+  if (status === "invalid_plan") {
+    return { error: "Please choose a valid plan." };
   }
   // 'ok' (new) and 'duplicate' (already have this request) both present as success.
   return { ok: true };

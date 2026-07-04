@@ -137,6 +137,10 @@ create table public.beta_leads (
     and (phone is null or char_length(phone) <= 40)
     and char_length(selected_plan) between 1 and 64
     and (message is null or char_length(message) <= 2000)
+  ),
+  -- Canonical plan allow-list (mirror of src/lib/marketing/plans.ts).
+  constraint beta_leads_plan_ck check (
+    selected_plan in ('parent-beta', 'learner-monthly', 'teacher-basic', 'teacher-pro', 'tutor-centre')
   )
 );
 
@@ -156,6 +160,8 @@ create index teacher_resources_created_at_idx on public.teacher_resources (creat
 create index beta_leads_email_idx on public.beta_leads (email);
 create index beta_leads_role_idx on public.beta_leads (role);
 create index beta_leads_created_at_idx on public.beta_leads (created_at desc);
+-- Concurrency-safe duplicate prevention: one lead per (email, plan).
+create unique index beta_leads_email_plan_uq on public.beta_leads (email, selected_plan);
 
 -- Row Level Security -------------------------------------------------------------
 alter table public.profiles enable row level security;
@@ -396,9 +402,12 @@ $$;
 revoke all on function public.cleanup_expired_sessions() from public, anon, authenticated;
 grant execute on function public.cleanup_expired_sessions() to service_role;
 
--- Trusted public beta-lead submission: validates, rate-limits (per email/IP),
--- and suppresses duplicates (per email+plan). The only write path to beta_leads
--- (direct INSERT is revoked). Returns 'ok' | 'duplicate' | 'rate_limited'.
+-- Trusted beta-lead submission: validates, enforces the canonical plan allow-list,
+-- rate-limits (per email/IP, advisory-locked), and suppresses duplicates
+-- (per email+plan, via the unique index). The only write path to beta_leads
+-- (direct INSERT is revoked). SERVICE-ROLE-ONLY: invoked from the validated
+-- Server Action with a server-derived IP; anon callers cannot reach it or supply
+-- p_ip. Returns 'ok' | 'duplicate' | 'rate_limited' | 'invalid_plan'.
 create or replace function public.submit_beta_lead(
   p_full_name text, p_email text, p_role text, p_selected_plan text,
   p_phone text, p_message text, p_ip text
@@ -416,6 +425,7 @@ declare
   v_plan text := trim(p_selected_plan);
   v_ip inet;
   v_recent integer;
+  v_inserted integer;
 begin
   begin
     v_ip := nullif(trim(p_ip), '')::inet;
@@ -428,23 +438,29 @@ begin
     raise exception 'invalid email' using errcode = '22023';
   end if;
   if p_role not in ('learner', 'parent', 'teacher', 'tutor', 'school_admin') then raise exception 'invalid role' using errcode = '22023'; end if;
-  if char_length(v_plan) < 1 or char_length(v_plan) > 64 then raise exception 'invalid plan' using errcode = '22023'; end if;
   if v_phone is not null and char_length(v_phone) > 40 then raise exception 'invalid phone' using errcode = '22023'; end if;
   if v_message is not null and char_length(v_message) > 2000 then raise exception 'invalid message' using errcode = '22023'; end if;
+  -- Canonical plan allow-list (must match src/lib/marketing/plans.ts).
+  if v_plan not in ('parent-beta', 'learner-monthly', 'teacher-basic', 'teacher-pro', 'tutor-centre') then
+    return 'invalid_plan';
+  end if;
+
+  -- Serialize same-email (then same-IP) callers so rate-limit + dedup are atomic.
+  perform pg_advisory_xact_lock(hashtext('beta_lead_email:' || v_email));
+  if v_ip is not null then perform pg_advisory_xact_lock(hashtext('beta_lead_ip:' || host(v_ip))); end if;
 
   select count(*) into v_recent from public.beta_leads
     where created_at > now() - interval '10 minutes'
       and (email = v_email or (v_ip is not null and ip = v_ip));
   if v_recent >= 5 then return 'rate_limited'; end if;
 
-  if exists (select 1 from public.beta_leads where email = v_email and selected_plan = v_plan) then
-    return 'duplicate';
-  end if;
-
   insert into public.beta_leads (full_name, email, phone, role, selected_plan, message, ip)
-  values (v_name, v_email, v_phone, p_role, v_plan, v_message, v_ip);
+  values (v_name, v_email, v_phone, p_role, v_plan, v_message, v_ip)
+  on conflict (email, selected_plan) do nothing;
+  get diagnostics v_inserted = row_count;
+  if v_inserted = 0 then return 'duplicate'; end if;
   return 'ok';
 end;
 $$;
 revoke all on function public.submit_beta_lead(text, text, text, text, text, text, text) from public, anon, authenticated;
-grant execute on function public.submit_beta_lead(text, text, text, text, text, text, text) to anon, authenticated;
+grant execute on function public.submit_beta_lead(text, text, text, text, text, text, text) to service_role;

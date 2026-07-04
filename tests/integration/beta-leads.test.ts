@@ -2,11 +2,15 @@ import { describe, test, expect, afterEach } from "vitest";
 import { hasIntegrationEnv, anonClient, serviceClient } from "./helpers";
 
 /**
- * Issue 7 regression tests: the public beta form is anti-abuse hardened. Gated
- * on INTEGRATION_SUPABASE_* (needs the harden_beta_leads migration applied to
- * the test project). Runs against a dedicated test project only.
+ * Beta-lead DB-boundary hardening (Objective 4). Gated on INTEGRATION_SUPABASE_*
+ * (needs the 20260704140000_beta_lead_db_boundary migration applied to the test
+ * project). Runs against a dedicated test project only.
+ *
+ * submit_beta_lead() is now SERVICE-ROLE-ONLY, so these drive it via the service
+ * client (as the validated Server Action does). Anonymous callers can no longer
+ * invoke it — asserted below.
  */
-describe.skipIf(!hasIntegrationEnv)("beta lead hardening (Issue 7)", () => {
+describe.skipIf(!hasIntegrationEnv)("beta lead DB boundary (Objective 4)", () => {
   let seq = 0;
   const emails: string[] = [];
   function email(): string {
@@ -21,8 +25,8 @@ describe.skipIf(!hasIntegrationEnv)("beta lead hardening (Issue 7)", () => {
     for (const e of emails.splice(0)) await svc.from("beta_leads").delete().eq("email", e);
   });
 
-  async function submit(anon: ReturnType<typeof anonClient>, over: Record<string, unknown> = {}) {
-    return anon.rpc("submit_beta_lead", {
+  function submit(over: Record<string, unknown> = {}) {
+    return serviceClient().rpc("submit_beta_lead", {
       p_full_name: "IT Lead",
       p_email: email(),
       p_role: "parent",
@@ -34,44 +38,89 @@ describe.skipIf(!hasIntegrationEnv)("beta lead hardening (Issue 7)", () => {
     });
   }
 
+  async function rowCount(e: string): Promise<number> {
+    const { count } = await serviceClient().from("beta_leads").select("id", { count: "exact", head: true }).eq("email", e);
+    return count ?? 0;
+  }
+
   test("a valid submission returns 'ok' and persists exactly one row", async () => {
-    const anon = anonClient();
     const e = email();
-    const { data, error } = await submit(anon, { p_email: e });
+    const { data, error } = await submit({ p_email: e });
     expect(error).toBeNull();
     expect(data).toBe("ok");
-
-    const { count } = await serviceClient().from("beta_leads").select("id", { count: "exact", head: true }).eq("email", e);
-    expect(count).toBe(1);
+    expect(await rowCount(e)).toBe(1);
   });
 
   test("a repeat of the same email + plan is suppressed as 'duplicate'", async () => {
-    const anon = anonClient();
     const e = email();
-    expect((await submit(anon, { p_email: e })).data).toBe("ok");
-    expect((await submit(anon, { p_email: e })).data).toBe("duplicate");
+    expect((await submit({ p_email: e })).data).toBe("ok");
+    expect((await submit({ p_email: e })).data).toBe("duplicate");
+    expect(await rowCount(e)).toBe(1);
+  });
 
-    const { count } = await serviceClient().from("beta_leads").select("id", { count: "exact", head: true }).eq("email", e);
-    expect(count).toBe(1);
+  test("an invalid (non-canonical) plan id is rejected as 'invalid_plan' and stores nothing", async () => {
+    const e = email();
+    expect((await submit({ p_email: e, p_selected_plan: "hacker-plan" })).data).toBe("invalid_plan");
+    expect((await submit({ p_email: e, p_selected_plan: "" })).data).toBe("invalid_plan");
+    expect(await rowCount(e)).toBe(0);
   });
 
   test("an oversized name is rejected with an error", async () => {
-    const anon = anonClient();
-    const { error } = await submit(anon, { p_full_name: "x".repeat(200) });
+    const { error } = await submit({ p_full_name: "x".repeat(200) });
     expect(error).not.toBeNull();
   });
 
   test("more than 5 submissions from one email in the window are rate limited", async () => {
-    const anon = anonClient();
     const e = email();
-    // 5 distinct plans (same email) all accepted, then the 6th is throttled.
-    for (const plan of ["p1", "p2", "p3", "p4", "p5"]) {
-      expect((await submit(anon, { p_email: e, p_selected_plan: plan })).data).toBe("ok");
+    // The 5 canonical plans (same email) are all accepted, then the 6th call is
+    // throttled (rate limit is checked before dedup).
+    for (const plan of ["parent-beta", "learner-monthly", "teacher-basic", "teacher-pro", "tutor-centre"]) {
+      expect((await submit({ p_email: e, p_selected_plan: plan })).data).toBe("ok");
     }
-    expect((await submit(anon, { p_email: e, p_selected_plan: "p6" })).data).toBe("rate_limited");
+    expect((await submit({ p_email: e, p_selected_plan: "parent-beta" })).data).toBe("rate_limited");
   });
 
-  test("a direct INSERT into beta_leads by anon is denied (all writes go via the function)", async () => {
+  test("concurrent identical submissions resolve cleanly to exactly one row (no 500s)", async () => {
+    const e = email();
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => submit({ p_email: e, p_selected_plan: "parent-beta" })),
+    );
+    // No call errors out — races become 'duplicate', never a crash.
+    expect(results.every((r) => r.error === null)).toBe(true);
+    const statuses = results.map((r) => r.data);
+    expect(statuses.filter((s) => s === "ok").length).toBe(1); // exactly one winner
+    expect(statuses.every((s) => s === "ok" || s === "duplicate")).toBe(true);
+    expect(await rowCount(e)).toBe(1); // unique index held under concurrency
+  });
+
+  test("concurrent burst from one email never exceeds the rate limit (no 500s)", async () => {
+    const e = email();
+    const plans = ["parent-beta", "learner-monthly", "teacher-basic", "teacher-pro", "tutor-centre"];
+    const results = await Promise.all(
+      Array.from({ length: 9 }, (_, i) => submit({ p_email: e, p_selected_plan: plans[i % plans.length] })),
+    );
+    expect(results.every((r) => r.error === null)).toBe(true);
+    const ok = results.filter((r) => r.data === "ok").length;
+    expect(ok).toBeLessThanOrEqual(5); // advisory lock makes the count atomic
+    expect(await rowCount(e)).toBe(ok); // rows persisted == accepted
+    expect(await rowCount(e)).toBeLessThanOrEqual(5);
+  });
+
+  test("an anonymous caller cannot invoke submit_beta_lead (service-role-only)", async () => {
+    const anon = anonClient();
+    const { error } = await anon.rpc("submit_beta_lead", {
+      p_full_name: "X",
+      p_email: email(),
+      p_role: "parent",
+      p_selected_plan: "parent-beta",
+      p_phone: null,
+      p_message: null,
+      p_ip: "1.2.3.4",
+    });
+    expect(error).not.toBeNull(); // permission denied for function
+  });
+
+  test("a direct INSERT into beta_leads by anon is denied", async () => {
     const anon = anonClient();
     const { error } = await anon
       .from("beta_leads")

@@ -196,7 +196,7 @@ describe.skipIf(!hasIntegrationEnv)("RLS boundaries", () => {
   });
 
   describe("beta_leads", () => {
-    test("public writes only via submit_beta_lead(); only admins can read", async () => {
+    test("writes only via the service-role submit_beta_lead(); only admins can read", async () => {
       const anon = anonClient();
       const email = `it-lead-${Date.now()}@mathmentor.test`;
 
@@ -206,8 +206,20 @@ describe.skipIf(!hasIntegrationEnv)("RLS boundaries", () => {
         .insert({ full_name: "IT Lead", email, phone: null, role: "parent", selected_plan: "parent-beta", message: null });
       expect(direct.error).not.toBeNull(); // permission denied for table
 
-      // The trusted function is the only write path.
-      const rpc = await anon.rpc("submit_beta_lead", {
+      // The function is now service-role-only: an anon caller cannot invoke it.
+      const anonRpc = await anon.rpc("submit_beta_lead", {
+        p_full_name: "IT Lead",
+        p_email: email,
+        p_role: "parent",
+        p_selected_plan: "parent-beta",
+        p_phone: null,
+        p_message: null,
+        p_ip: null,
+      });
+      expect(anonRpc.error).not.toBeNull(); // permission denied for function
+
+      // The validated Server Action writes via the service role.
+      const rpc = await serviceClient().rpc("submit_beta_lead", {
         p_full_name: "IT Lead",
         p_email: email,
         p_role: "parent",
