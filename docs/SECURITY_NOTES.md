@@ -43,6 +43,7 @@ RLS is enabled on all tables; policies are owner-scoped. See [DATABASE.md](DATAB
 - **Service-role key is never client-exposed.** It is read only in `src/lib/supabase/server.ts`, used only in server code, and must never be placed in a `NEXT_PUBLIC_*` variable.
 - **No `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.** The project standardises on the anon key.
 - **Reflected input is escaped.** Error messages surfaced from query params render as escaped React text (no `dangerouslySetInnerHTML` anywhere).
+- **No open redirect after auth.** The `next` value on `/auth/callback` is attacker-controlled, so it is normalised by `safeNextPath()` (`src/lib/auth/safe-redirect.ts`) to a same-origin, absolute application path before redirecting; anything else (absolute/protocol-relative/backslash/user-info/control-char/malformed) falls back to `/dashboard`.
 
 ## Known limitations / residual risks
 
