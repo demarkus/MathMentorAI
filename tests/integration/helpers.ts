@@ -91,6 +91,13 @@ export async function learnerProfileId(userId: string): Promise<string> {
   return (data as { id: string }).id;
 }
 
+/** Sets a user's profile role via the service client (bypasses RLS). */
+export async function setProfileRole(userId: string, role: AppRole): Promise<void> {
+  const svc = serviceClient();
+  const { error } = await svc.from("profiles").update({ role }).eq("id", userId);
+  if (error) throw new Error(`setProfileRole failed: ${error.message}`);
+}
+
 /** Reads a user's profile role via the service client (bypasses RLS). */
 export async function getProfileRole(userId: string): Promise<string | null> {
   const svc = serviceClient();

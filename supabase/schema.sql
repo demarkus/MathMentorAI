@@ -191,7 +191,10 @@ create policy "profiles_update_own" on public.profiles for update to authenticat
 create policy "learner_profiles_select_own" on public.learner_profiles for select to authenticated
   using ((select auth.uid()) = user_id);
 create policy "learner_profiles_insert_own" on public.learner_profiles for insert to authenticated
-  with check ((select auth.uid()) = user_id);
+  with check (
+    (select auth.uid()) = user_id
+    and exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.role = 'student')
+  );
 create policy "learner_profiles_update_own" on public.learner_profiles for update to authenticated
   using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 
@@ -216,9 +219,16 @@ create policy "reports_insert_own" on public.reports for insert to authenticated
 create policy "teacher_resources_select_own" on public.teacher_resources for select to authenticated
   using ((select auth.uid()) = teacher_id);
 create policy "teacher_resources_insert_own" on public.teacher_resources for insert to authenticated
-  with check ((select auth.uid()) = teacher_id);
+  with check (
+    (select auth.uid()) = teacher_id
+    and exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.role = 'teacher')
+  );
 create policy "teacher_resources_update_own" on public.teacher_resources for update to authenticated
-  using ((select auth.uid()) = teacher_id) with check ((select auth.uid()) = teacher_id);
+  using ((select auth.uid()) = teacher_id)
+  with check (
+    (select auth.uid()) = teacher_id
+    and exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.role = 'teacher')
+  );
 create policy "teacher_resources_delete_own" on public.teacher_resources for delete to authenticated
   using ((select auth.uid()) = teacher_id);
 create policy "teacher_resources_select_admin" on public.teacher_resources for select to authenticated
