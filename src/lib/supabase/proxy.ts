@@ -29,5 +29,10 @@ export async function updateSession(request: NextRequest) {
     destination.searchParams.set("next", pathname);
     return NextResponse.redirect(destination);
   }
+  // Authenticated, per-user areas must never be cached by the browser or a shared
+  // cache/CDN — they render account-specific data behind auth.
+  if (isProtected) {
+    response.headers.set("Cache-Control", "private, no-store, max-age=0, must-revalidate");
+  }
   return response;
 }
