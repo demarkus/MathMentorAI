@@ -1,6 +1,6 @@
 # Security Notes — Math Mentor AI
 
-This documents the security model as it exists in the code today. It reflects the most recent QA/security audit (no critical issues outstanding).
+This documents the security model as it exists in the code today. It reflects the security-hardening sprint (secure roles, protected answer keys, trusted submission); no critical issues outstanding.
 
 ## Auth model
 
@@ -20,13 +20,16 @@ This documents the security model as it exists in the code today. It reflects th
   2. Every protected page **and** server action calls `requireRole(section)` (`src/lib/auth/require-role.ts`), which: no session → `/auth/sign-in`; no role → `/onboarding`; wrong role → `/dashboard`.
 - The `/dashboard` route re-routes each role to its module.
 - Coverage verified: all learner/parent/teacher/admin pages and their actions call `requireRole` with the correct role.
+- **Role is tamper-proof:** authenticated users cannot change `profiles.role` via the Data API (column-scoped UPDATE grant permits only `full_name`). Onboarding uses the `complete_onboarding()` security-definer function, which allows only `student`/`parent`/`teacher` and sets the role only when unset. Admin is provisioned out-of-band.
 
 ## RLS model
 
 RLS is enabled on all tables; policies are owner-scoped. See [DATABASE.md](DATABASE.md#rls-overview) for the full matrix. Key rules:
 
-- `profiles`, `learner_profiles`, `quiz_sessions`, `attempts`, `reports` — a user can read/write only rows tied to their own `auth.uid()` (learner rows via `learner_profiles.user_id`).
-- `topics` and **active** `questions` are the only public-readable content.
+- `profiles` — read own row; **update only `full_name`** (role/email are not client-writable).
+- `learner_profiles` — read/write only the user's own rows.
+- `quiz_sessions`, `attempts`, `reports` — a user can **read** only their own rows; **client INSERT is revoked**. Writes go through `finalize_quiz_submission()` (service_role only, atomic + idempotent).
+- `topics` are public; **active** `questions` are public for **render columns only** — `answer_text`, `hint`, `solution_steps` are withheld from anon/authenticated.
 - `teacher_resources` — owner (`teacher_id`) only; admins may select all.
 - `beta_leads` — public **insert** only; select is admin-only.
 
@@ -35,16 +38,18 @@ RLS is enabled on all tables; policies are owner-scoped. See [DATABASE.md](DATAB
 - **Parent reports do not expose learner data.** `/parent/reports` renders placeholders and queries no learner data; `/parent/reports/[learnerId]` intentionally ignores the `learnerId` param and performs no query. This is by design until secure linking exists.
 - **Teacher resources are owner-scoped.** List/detail queries filter by `teacher_id`; the detail route 404s on non-owned ids; RLS is the backstop.
 - **Beta leads are not publicly readable.** The public can submit but cannot list or read submissions.
+- **Answer keys are not exposed.** `answer_text`, `hint`, `solution_steps` are withheld from the Data API (column-scoped SELECT grant); grading, worksheet memos, and the practice reveal read them server-side via the service role, and the reveal is bound to the learner's issued session.
+- **Assessment results cannot be forged.** Quiz submission runs through a trusted, issued-session-bound path: answers are accepted only for the session's persisted question set, scored server-side, and written atomically via `finalize_quiz_submission()`; retries are idempotent.
 - **Service-role key is never client-exposed.** It is read only in `src/lib/supabase/server.ts`, used only in server code, and must never be placed in a `NEXT_PUBLIC_*` variable.
 - **No `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.** The project standardises on the anon key.
 - **Reflected input is escaped.** Error messages surfaced from query params render as escaped React text (no `dangerouslySetInnerHTML` anywhere).
 
 ## Known limitations / residual risks
 
-- **Best-effort persistence uses the service-role client** (quiz sessions, reports, teacher resources, profile provisioning). It bypasses RLS, so its safety depends on the surrounding `requireRole(...)` checks and server-derived ownership (`learner_profiles.user_id = session user`, `teacher_id = session user`). These checks are in place; keep them if refactoring.
-- **No server-side idempotency on quiz submission** — a cross-request double-submit (back-button/retry) could create duplicate `quiz_sessions`/`attempts`/`reports`. The client blocks *concurrent* same-tick submits with a synchronous ref guard (`QuizShell`); a DB-level dedupe key (schema change) is future hardening.
+- **Trusted server code uses the service-role client** (quiz-session start, grading, worksheet memos, profile provisioning, the finalize function). It bypasses RLS, so its safety depends on the surrounding `requireRole(...)` checks and server-derived ownership; `finalize_quiz_submission()` additionally re-checks session ownership and is `service_role`-only.
+- **Quiz submission is idempotent** — the trusted finalize returns the existing report on retry (session single-submit + a unique `submission_key`), so back-button/retry does not duplicate rows.
 - **Parent linking is unbuilt** — do **not** add learner queries to the parent routes until a secure, learner-confirmed linking mechanism exists.
-- **No automated security tests** — add auth/role and RLS smoke tests before major changes.
+- **Automated security coverage** — auth/role, answer-key, and submission invariants are covered by unit + gated integration tests (`pnpm test` / `pnpm test:integration`); see [TESTING_E2E_PLAN.md](TESTING_E2E_PLAN.md).
 
 ## Do / don't for contributors
 

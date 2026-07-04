@@ -1,6 +1,8 @@
 # Database — Math Mentor AI
 
-Postgres on Supabase. The **migrations in `supabase/migrations/` are the source of truth** for a fresh database; `supabase/schema.sql` is a full reference copy of the same objects (tables + RLS + policies), and `supabase/seed.sql` provides CAPS content.
+Postgres on Supabase. The **migrations in `supabase/migrations/` are the source of truth** for a fresh database; `supabase/schema.sql` is a **schema-only** reference of the same objects (tables + indexes + RLS + policies + functions — no seed), and `supabase/seed.sql` provides CAPS content.
+
+**Security posture** (from the hardening sprint): `profiles.role` is not client-updatable (only `full_name`); question answer keys (`answer_text`/`hint`/`solution_steps`) are withheld from the Data API; and `attempts`/`quiz_sessions`/`reports` are not client-insertable — writes go through the trusted, atomic, idempotent `finalize_quiz_submission()` (service_role only).
 
 ## Tables
 
@@ -23,14 +25,15 @@ The question bank.
 - `id`, `topic_id` (→ `topics`), `grade`, `question_text`, `answer_text`, `hint`, `solution_steps` (jsonb **array**), `difficulty` (`question_difficulty` enum: `easy` | `medium` | `hard`), `cognitive_level` (default `routine procedure`), `marks` (>0), `is_active`, `created_at`.
 - There is **no `explanation_text` column** — worked steps live in `solution_steps`.
 
-### `quiz_sessions` *(migration `…120000`)*
-One row per completed diagnostic/practice run.
+### `quiz_sessions` *(migration `…120000`; issued-session fields `…022709`)*
+One row per diagnostic/practice run — created at start, finalized on submit.
 - `id`, `learner_id` (→ `learner_profiles`), `quiz_type` (`diagnostic` | `practice`), `score`, `total_marks`, `percentage`, `created_at`.
+- Issued-session fields: `status` (`issued` | `submitted`), `topic_id` (→ `topics`, practice), `grade`, `question_ids` (`uuid[]` — the persisted issued set), `submission_key` (unique — idempotency).
 
 ### `attempts`
-Per-question answer records.
+Per-question answer records. **Written only by `finalize_quiz_submission()`** (no client insert).
 - `id`, `learner_id` (→ `learner_profiles`), `question_id` (→ `questions`), `submitted_answer`, `is_correct`, `score`, `time_spent_seconds`, `created_at`.
-- `quiz_session_id` (→ `quiz_sessions`) added by migration `…130000`; persistence falls back to unlinked attempts if that column is absent.
+- `quiz_session_id` (→ `quiz_sessions`) added by migration `…130000`.
 
 ### `reports` *(migration `…120000`)*
 Persisted result summaries.
@@ -53,8 +56,11 @@ Public beta sign-ups.
 | 3 | `20260702130000_link_attempts_to_quiz_sessions.sql` | `attempts.quiz_session_id` link column |
 | 4 | `20260702140000_add_teacher_resources.sql` | `teacher_resources` (+ RLS, owner + admin policies) |
 | 5 | `20260702182712_add_beta_leads.sql` | `beta_leads` (+ RLS, public insert / admin select) |
+| 6 | `20260704014402_secure_roles.sql` | column-scoped `profiles` UPDATE (full_name only); `complete_onboarding()` |
+| 7 | `20260704020846_protect_answer_keys.sql` | column-scoped `questions` SELECT (withholds answer keys) |
+| 8 | `20260704022709_trusted_submission.sql` | revoke client INSERT on `attempts`/`quiz_sessions`/`reports`; issued-session columns; `finalize_quiz_submission()` |
 
-Migrations 2–5 are **additive and idempotent** (guards on tables, indexes, and policies), and their column shapes match the application inserts, so features begin persisting with no code change once applied.
+All migrations are **additive and idempotent** (guards on tables, indexes, and policies).
 
 ## Seed data (`supabase/seed.sql`)
 
@@ -68,17 +74,18 @@ RLS is enabled on **every** table. Summary of who can do what:
 
 | Table | Public (anon) | Authenticated user | Admin |
 |-------|---------------|--------------------|-------|
-| `profiles` | — | select/update **own** | own only |
+| `profiles` | — | select **own**; update **`full_name` only** | own only |
 | `learner_profiles` | — | select/insert/update **own** | own only |
 | `topics` | select | select | select |
-| `questions` | select (active only) | select (active only) | full via service role in admin |
-| `quiz_sessions` | — | select/insert **own** | own only |
-| `attempts` | — | select/insert **own** | own only |
-| `reports` | — | select/insert **own** | own only |
+| `questions` | select (active, **render columns only**) | select (active, render columns only) | full via service role in admin |
+| `quiz_sessions` | — | select **own** (no client insert) | own only |
+| `attempts` | — | select **own** (no client insert) | own only |
+| `reports` | — | select **own** (no client insert) | own only |
 | `teacher_resources` | — | select/insert/update/delete **own** | **select all** |
 | `beta_leads` | **insert only** | insert | **select all** |
 
 Notes:
-- The only public-readable content is `topics` and **active** `questions` (the practice/catalogue surface).
-- `beta_leads` is the only table with a public insert; it has **no** public select/update/delete.
-- Admin question/topic management and best-effort persistence (sessions/reports/resources) use the **service-role client** in server code, which bypasses RLS but is only ever reached after `requireRole(...)` / server-derived ownership.
+- `questions` answer keys (`answer_text`, `hint`, `solution_steps`) are **not granted** to anon/authenticated; only render columns are. `profiles.role`/`email` are **not client-updatable**.
+- `attempts`/`quiz_sessions`/`reports` **cannot be inserted by clients**; writes go through the trusted, atomic, idempotent `finalize_quiz_submission()` function (`service_role` only), and quiz sessions are created server-side with a persisted issued question set.
+- Server code reaches answer keys / writes via the **service-role client**, only ever after `requireRole(...)` and server-derived ownership.
+- Functions: `handle_new_user` (trigger), `complete_onboarding` (authenticated), `finalize_quiz_submission` (service_role only).

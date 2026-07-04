@@ -76,7 +76,7 @@ No test framework or CSS-in-JS is used. There are currently **no automated tests
 │       ├── progress/           # load-progress
 │       └── marketing/          # plans
 ├── supabase/
-│   ├── schema.sql              # full reference schema (tables + RLS + policies + seed CTE)
+│   ├── schema.sql              # reference schema ONLY (tables + indexes + RLS + policies + functions; no seed)
 │   ├── seed.sql                # 14 topics + 108 questions (idempotent)
 │   └── migrations/             # ordered, additive migrations (source of truth for a fresh DB)
 ├── docs/                       # product, scope, database, roadmap, security, deployment
@@ -150,9 +150,12 @@ run: `pnpm exec playwright install chromium`. See [docs/TESTING_E2E_PLAN.md](doc
    3. `20260702130000_link_attempts_to_quiz_sessions.sql`
    4. `20260702140000_add_teacher_resources.sql`
    5. `20260702182712_add_beta_leads.sql`
+   6. `20260704014402_secure_roles.sql`
+   7. `20260704020846_protect_answer_keys.sql`
+   8. `20260704022709_trusted_submission.sql`
 4. **Run the seed** — execute `supabase/seed.sql` (safe to re-run; upserts topics, skips duplicate questions).
 5. **Enable email/password auth** — Authentication → Providers → Email. Set the Site URL and add `<your-app>/auth/callback` as a redirect URL for email confirmation.
-6. **RLS** is defined inside the SQL — every sensitive table has RLS enabled with owner-scoped policies. `supabase/schema.sql` is a full reference copy of the same objects.
+6. **RLS** is defined inside the SQL — every sensitive table has RLS enabled with owner-scoped policies. `supabase/schema.sql` is a **schema-only** reference of the same objects (never a setup path).
 
 ---
 
