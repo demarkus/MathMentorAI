@@ -97,7 +97,13 @@ export async function generateWorksheet(request: GeneratorRequest): Promise<Gene
   if (!topicRow) return { error: "That topic wasn’t found for the selected grade." };
   const topic = topicRow as { id: string; name: string; slug: string; grade: number };
 
-  let query = supabase
+  // The memo needs answer keys, which are not readable through the Data API.
+  // Read questions via the trusted service-role client (teacher role already
+  // verified above).
+  const admin = createServiceRoleClient();
+  if (!admin) return { error: "Resource generation is unavailable: the service role key is not configured." };
+
+  let query = admin
     .from("questions")
     .select("id, question_text, answer_text, hint, solution_steps, difficulty, marks")
     .eq("topic_id", topic.id)

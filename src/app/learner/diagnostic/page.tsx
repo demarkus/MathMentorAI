@@ -11,7 +11,6 @@ type QuestionRow = {
   marks: number;
   difficulty: string;
   question_text: string;
-  answer_text: string;
   topic_id: string;
   topics: { name: string; slug: string } | { name: string; slug: string }[] | null;
 };
@@ -20,9 +19,11 @@ export default async function DiagnosticPage() {
   await requireRole("learner");
 
   const supabase = await createClient();
+  // No answer_text: the diagnostic never sends answers to the client, and answer
+  // keys are not readable through the Data API. Grading reads them server-side.
   const { data } = await supabase
     .from("questions")
-    .select("id, grade, marks, difficulty, question_text, answer_text, topic_id, topics(name, slug)")
+    .select("id, grade, marks, difficulty, question_text, topic_id, topics(name, slug)")
     .eq("is_active", true)
     .order("grade", { ascending: true });
 
@@ -31,7 +32,7 @@ export default async function DiagnosticPage() {
     return {
       id: row.id,
       question_text: row.question_text,
-      answer_text: row.answer_text,
+      answer_text: "", // unused here (selection only); real answer read server-side when grading
       difficulty: row.difficulty,
       marks: row.marks,
       grade: row.grade,
