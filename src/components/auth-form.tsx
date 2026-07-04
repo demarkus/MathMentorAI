@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Alert } from "@/components/ui/Alert";
 
-export function AuthForm({ mode, action, error, message }: { mode: "login" | "signup"; action: (data: FormData) => void; error?: string; message?: string }) {
+export function AuthForm({ mode, action, error, message, next }: { mode: "login" | "signup"; action: (data: FormData) => void; error?: string; message?: string; next?: string }) {
   const signup = mode === "signup";
   return (
     <div>
@@ -11,6 +11,7 @@ export function AuthForm({ mode, action, error, message }: { mode: "login" | "si
       {error && <Alert variant="error" className="mt-5">{error}</Alert>}
       {message && <Alert variant="success" className="mt-5">{message}</Alert>}
       <form action={action} className="mt-8 space-y-4">
+        {!signup && next && <input type="hidden" name="next" value={next} />}
         {signup && <label className="block text-sm font-medium">Full name<input name="fullName" required className="mt-2 w-full rounded-xl border border-line bg-white px-4 py-3 outline-none focus:border-brand" /></label>}
         {signup && <label className="block text-sm font-medium">I am a…<select name="role" required defaultValue="learner" className="mt-2 w-full rounded-xl border border-line bg-white px-4 py-3 outline-none focus:border-brand"><option value="learner">Learner</option><option value="parent">Parent</option><option value="teacher">Teacher</option></select></label>}
         <label className="block text-sm font-medium">Email address<input name="email" type="email" required className="mt-2 w-full rounded-xl border border-line bg-white px-4 py-3 outline-none focus:border-brand" /></label>

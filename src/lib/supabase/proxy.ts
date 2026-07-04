@@ -25,8 +25,13 @@ export async function updateSession(request: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   if (isProtected && !data?.claims) {
     const destination = request.nextUrl.clone();
+    // Carry the full intended local destination (path + its own query) so the
+    // learner returns exactly where they were headed after signing in. This is
+    // re-validated by safeNextPath in the login action before any redirect.
+    const intended = `${pathname}${request.nextUrl.search}`;
     destination.pathname = "/auth/sign-in";
-    destination.searchParams.set("next", pathname);
+    destination.search = "";
+    destination.searchParams.set("next", intended);
     return NextResponse.redirect(destination);
   }
   // Authenticated, per-user areas must never be cached by the browser or a shared
