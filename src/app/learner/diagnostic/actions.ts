@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { gradeDiagnostic, selectDiagnosticQuestions, type DiagnosticQuestion } from "@/lib/math/diagnostic";
+import { loadLearnerContext } from "@/lib/learner/profile";
 import { loadSession, startSession, finalizeSession, submittedMatchesIssued, isSessionExpired } from "@/lib/quiz/session";
 import type { QuizAnswer } from "@/components/quiz/QuizShell";
 
@@ -42,23 +43,20 @@ export async function startDiagnostic(): Promise<{ error?: string } | void> {
   const user = await requireRole("learner");
   const supabase = await createClient();
 
-  const { data: learner } = await supabase
-    .from("learner_profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  const learnerId = (learner as { id: string } | null)?.id;
-  if (!learnerId) redirect("/onboarding");
+  const learner = await loadLearnerContext(supabase, user.id);
+  if (!learner) redirect("/onboarding");
+  const { id: learnerId, grade } = learner;
 
   const admin = createServiceRoleClient();
   if (!admin) return { error: "We couldn’t start your diagnostic right now. Please try again." };
 
   // Render columns only — answer keys stay server-side and are read at grading.
+  // Grade-scoped: a learner is only ever tested on their own grade.
   const { data, error } = await supabase
     .from("questions")
     .select("id, grade, marks, difficulty, question_text, topic_id, topics(name, slug)")
     .eq("is_active", true)
-    .order("grade", { ascending: true });
+    .eq("grade", grade);
   if (error) return { error: "We couldn’t load the diagnostic. Please try again." };
 
   const all: DiagnosticQuestion[] = ((data ?? []) as unknown as QuestionRow[]).map((row) => {
@@ -76,7 +74,7 @@ export async function startDiagnostic(): Promise<{ error?: string } | void> {
     };
   });
 
-  const selected = selectDiagnosticQuestions(all);
+  const selected = selectDiagnosticQuestions(all, undefined, grade);
   if (selected.length === 0) {
     return { error: "There aren’t any active questions to build a diagnostic right now. Please check back soon." };
   }
@@ -84,6 +82,7 @@ export async function startDiagnostic(): Promise<{ error?: string } | void> {
   const sessionId = await startSession(admin, {
     learnerId,
     quizType: "diagnostic",
+    grade,
     questionIds: selected.map((question) => question.id),
   });
   if (!sessionId) return { error: "We couldn’t start your diagnostic right now. Please try again." };
@@ -139,7 +138,7 @@ export async function submitDiagnostic(
   }
 
   const answersById = new Map(answers.map((entry) => [entry.questionId, entry.answer]));
-  const { summary, graded } = gradeDiagnostic(questions, answersById);
+  const { summary, graded } = gradeDiagnostic(questions, answersById, session.grade ?? undefined);
 
   const reportId = await finalizeSession(admin, {
     sessionId: session.id,

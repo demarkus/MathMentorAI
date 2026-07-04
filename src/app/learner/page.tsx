@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { loadLearnerProgress } from "@/lib/progress/load-progress";
+import { loadLearnerContext } from "@/lib/learner/profile";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { DashboardCard } from "@/components/dashboard/DashboardCard";
@@ -13,13 +14,8 @@ export default async function LearnerPage() {
   const firstName = user.profile?.full_name?.split(" ")[0] || "learner";
 
   const supabase = await createClient();
-  const { data: learner } = await supabase
-    .from("learner_profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  const learnerId = (learner as { id: string } | null)?.id;
-  const progress = learnerId ? await loadLearnerProgress(supabase, learnerId) : null;
+  const learner = await loadLearnerContext(supabase, user.id);
+  const progress = learner ? await loadLearnerProgress(supabase, learner.id, learner.grade) : null;
   const hasProgress = Boolean(progress?.hasData);
 
   return (

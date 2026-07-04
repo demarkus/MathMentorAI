@@ -110,6 +110,7 @@ const RECENT_SESSION_SCAN = 200;
 export async function loadLearnerProgress(
   supabase: SupabaseClient,
   learnerId: string,
+  grade?: number,
 ): Promise<LearnerProgress> {
   // Exact totals via COUNT(head) — no rows transferred.
   const totalAttemptsResult = await supabase
@@ -175,11 +176,15 @@ export async function loadLearnerProgress(
         createdAt: row.created_at,
       }));
 
-  const topicsResult = await supabase
+  // Grade-scope the recommendation catalogue so we never recommend a topic from
+  // another grade. When no grade is given, fall back to the full catalogue.
+  let topicsQuery = supabase
     .from("topics")
     .select("id, name, slug, grade, display_order")
     .order("grade", { ascending: true })
     .order("display_order", { ascending: true });
+  if (grade !== undefined) topicsQuery = topicsQuery.eq("grade", grade);
+  const topicsResult = await topicsQuery;
   const topics: TopicRef[] = topicsResult.error
     ? []
     : ((topicsResult.data ?? []) as unknown as TopicRow[]).map((row) => ({
@@ -206,6 +211,12 @@ export async function loadLearnerProgress(
   const overallAccuracy = totalAttempts ? Math.round((correctCount / totalAttempts) * 100) : 0;
   const averageScore = sessions.length ? calculateAverageScore(sessions) : overallAccuracy;
 
+  // Only recommend within the learner's grade: scope the performance the
+  // recommender considers so a legacy cross-grade attempt can't surface a
+  // different grade's topic.
+  const recommendPerformance =
+    grade === undefined ? topicPerformance : topicPerformance.filter((topic) => topic.grade === grade);
+
   return {
     error: false,
     hasData: totalAttempts > 0 || totalQuizzes > 0,
@@ -217,7 +228,7 @@ export async function loadLearnerProgress(
     weakTopics: findWeakTopics(topicPerformance),
     strongTopics: findStrongTopics(topicPerformance),
     recentActivity: summarizeRecentActivity(attempts, 6),
-    recommendedTopic: recommendNextTopic(topicPerformance, topics),
+    recommendedTopic: recommendNextTopic(recommendPerformance, topics),
     latestDiagnostic,
   };
 }

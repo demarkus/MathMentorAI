@@ -5,6 +5,7 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { QuizShell, type QuizShellQuestion } from "@/components/quiz/QuizShell";
 import { QuizStartForm } from "@/components/quiz/QuizStartForm";
 import { loadSession, isSessionRunnable } from "@/lib/quiz/session";
+import { loadLearnerContext } from "@/lib/learner/profile";
 import { startDiagnostic, submitDiagnostic } from "./actions";
 
 type RenderRow = {
@@ -37,13 +38,9 @@ export default async function DiagnosticPage({
   const { session: sessionId } = await searchParams;
 
   const supabase = await createClient();
-  const { data: learner } = await supabase
-    .from("learner_profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  const learnerId = (learner as { id: string } | null)?.id;
-  if (!learnerId) redirect("/onboarding");
+  const learner = await loadLearnerContext(supabase, user.id);
+  if (!learner) redirect("/onboarding");
+  const { id: learnerId, grade } = learner;
 
   // ---- Run view: an explicitly-started session is being taken. GET only reads.
   if (sessionId) {
@@ -93,8 +90,8 @@ export default async function DiagnosticPage({
           <p className="text-sm font-semibold text-brand">Diagnostic</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Let’s find your starting point.</h1>
           <p className="mt-3 text-muted">
-            Answer {quizQuestions.length} questions across Grade 9 and Grade 10 algebra. Use Previous and Next to move
-            between them, then submit when you’re ready.
+            Answer {quizQuestions.length} questions across your Grade {grade} algebra topics. Use Previous and Next to
+            move between them, then submit when you’re ready.
           </p>
         </div>
         <QuizShell questions={quizQuestions} onSubmit={submitDiagnostic.bind(null, sessionId)} submitLabel="Submit diagnostic" />
@@ -106,7 +103,8 @@ export default async function DiagnosticPage({
   const { count, error: countError } = await supabase
     .from("questions")
     .select("id", { count: "exact", head: true })
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .eq("grade", grade);
 
   if (countError) {
     return (
@@ -136,7 +134,7 @@ export default async function DiagnosticPage({
         <p className="text-sm font-semibold text-brand">Diagnostic</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Ready when you are.</h1>
         <p className="mt-3 text-muted">
-          The diagnostic mixes Grade 9 and Grade 10 algebra to find your strengths and focus areas. It takes a few
+          The diagnostic covers your Grade {grade} algebra topics to find your strengths and focus areas. It takes a few
           minutes. Start when you’re ready.
         </p>
       </div>

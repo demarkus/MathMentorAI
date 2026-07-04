@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { loadLearnerProgress, type LearnerProgress } from "@/lib/progress/load-progress";
+import { loadLearnerContext } from "@/lib/learner/profile";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { DashboardCard } from "@/components/dashboard/DashboardCard";
@@ -152,16 +153,11 @@ export default async function LearnerProgressPage() {
   const user = await requireRole("learner");
   const supabase = await createClient();
 
-  const { data: learner } = await supabase
-    .from("learner_profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  const learnerId = (learner as { id: string } | null)?.id;
+  const learner = await loadLearnerContext(supabase, user.id);
 
-  if (!learnerId) return <EmptyState />;
+  if (!learner) return <EmptyState />;
 
-  const progress = await loadLearnerProgress(supabase, learnerId);
+  const progress = await loadLearnerProgress(supabase, learner.id, learner.grade);
 
   if (progress.error) {
     return (
