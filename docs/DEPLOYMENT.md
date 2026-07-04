@@ -28,6 +28,23 @@ pnpm test    # unit tests (Vitest) — deterministic logic + auth/role guard
 5. Set **Site URL** to your app origin and add `<origin>/auth/callback` as a redirect URL (used for email confirmation).
 6. **Install the branded email templates** (Authentication → Emails) from `supabase/templates/` — see [EMAIL_TEMPLATES.md](EMAIL_TEMPLATES.md). Optional but recommended before inviting beta users; Supabase defaults are used otherwise.
 
+### Supabase API keys (current contract + future migration)
+
+The app uses the **legacy** key pair, and this is the supported contract today:
+
+- `NEXT_PUBLIC_SUPABASE_URL` — project URL (public).
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — anon key; used by the browser + cookie-scoped server client (RLS applies).
+- `SUPABASE_SERVICE_ROLE_KEY` — server-only, RLS-bypassing; never `NEXT_PUBLIC_`.
+
+**Future migration to publishable/secret keys.** Supabase is rolling out new API keys (`sb_publishable_…` / `sb_secret_…`) to replace anon/service-role. When adopting them, do it as a *deliberate, additive* change — do **not** rename or drop the current env vars in a way that breaks a running deployment:
+
+1. Keep the existing three vars working; add the new keys alongside (e.g. behind a new, clearly-named var) so old and new can coexist during rollout.
+2. Swap the client constructors (`src/lib/supabase/{server,client,proxy}.ts`) to read the new var with a fallback to the legacy one, so a missing new key does not break boot.
+3. Verify auth + RLS end-to-end on a test project (the gated integration suite) **before** removing the legacy vars.
+4. Only after the new keys are confirmed in every environment, retire the legacy vars.
+
+Never introduce a `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` that exposes a secret; the publishable key is public by design, but the **secret** key must stay server-only exactly like the service-role key does today.
+
 ## 3. Migrations & seed
 
 Apply migrations **in filename order** (they are additive and idempotent). Either:
