@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { MAX_ACTIVE_ISSUED_SESSIONS } from "./limits";
 
 /**
  * Trusted quiz-session helpers. All writes go through the service-role client
@@ -30,7 +31,41 @@ export type FinalizeAttempt = {
   score: number;
 };
 
-/** Persists the exact issued question set as a new session. Returns its id. */
+/** A learner's currently-active (issued, unexpired) session, for the reuse/cap decision. */
+export type ActiveSessionRow = { id: string; quizType: string; topicId: string | null; grade: number | null };
+
+/** The outcome of the reuse/cap decision. */
+export type SessionStartDecision =
+  | { kind: "reuse"; sessionId: string }
+  | { kind: "create" }
+  | { kind: "at_limit" };
+
+/**
+ * Pure decision for starting a session, given the learner's active issued
+ * sessions. Reuses a matching one (same type + topic + grade) so a refresh or
+ * double-click resumes instead of piling up rows; otherwise creates one, unless
+ * the learner already holds `max` active issued sessions (abuse cap). Injectable
+ * and side-effect-free for testing.
+ */
+export function chooseSessionStart(
+  active: ActiveSessionRow[],
+  want: { quizType: QuizType; topicId: string | null; grade: number | null },
+  max: number = MAX_ACTIVE_ISSUED_SESSIONS,
+): SessionStartDecision {
+  const match = active.find(
+    (s) => s.quizType === want.quizType && s.topicId === want.topicId && s.grade === want.grade,
+  );
+  if (match) return { kind: "reuse", sessionId: match.id };
+  if (active.length >= max) return { kind: "at_limit" };
+  return { kind: "create" };
+}
+
+/**
+ * Persists the exact issued question set as a new session and returns its id, OR
+ * reuses a still-active matching session (refresh/double-click), OR returns null
+ * when the learner is at the active-session cap or the insert fails. Bounds the
+ * number of simultaneously-issued sessions per learner.
+ */
 export async function startSession(
   admin: SupabaseClient,
   params: {
@@ -43,7 +78,34 @@ export async function startSession(
   },
 ): Promise<string | null> {
   const ttl = params.ttlMinutes ?? SESSION_TTL_MINUTES;
+  const nowIso = new Date().toISOString();
   const expiresAt = new Date(Date.now() + ttl * 60_000).toISOString();
+
+  // Look at the learner's active (issued, unexpired) sessions to decide.
+  const { data: activeData } = await admin
+    .from("quiz_sessions")
+    .select("id, quiz_type, topic_id, grade")
+    .eq("learner_id", params.learnerId)
+    .eq("status", "issued")
+    .gt("expires_at", nowIso)
+    .order("created_at", { ascending: false })
+    .limit(MAX_ACTIVE_ISSUED_SESSIONS + 1);
+
+  const active: ActiveSessionRow[] = ((activeData ?? []) as {
+    id: string;
+    quiz_type: string;
+    topic_id: string | null;
+    grade: number | null;
+  }[]).map((row) => ({ id: row.id, quizType: row.quiz_type, topicId: row.topic_id, grade: row.grade }));
+
+  const decision = chooseSessionStart(active, {
+    quizType: params.quizType,
+    topicId: params.topicId ?? null,
+    grade: params.grade ?? null,
+  });
+  if (decision.kind === "reuse") return decision.sessionId;
+  if (decision.kind === "at_limit") return null;
+
   const { data, error } = await admin
     .from("quiz_sessions")
     .insert({

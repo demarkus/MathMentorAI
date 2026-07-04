@@ -69,6 +69,7 @@ or paste each file from `supabase/migrations/` into the SQL editor, **in filenam
 11. `20260704115128_add_session_expiry_and_cleanup.sql`
 12. `20260704130052_harden_beta_leads.sql`
 13. `20260704140000_beta_lead_db_boundary.sql`
+14. `20260704150000_bound_quiz_abuse.sql`
 
 Then load CAPS content by running **`supabase/seed.sql`** — one command, no manual pre-step:
 
@@ -136,6 +137,38 @@ order by proname;
 - Apply **every migration** (in filename order — see §3), each **exactly once**, to the production database before inviting users. They are additive but must not be replayed; the security hardening (secure roles, protected answer keys, trusted submission, topic/grade integrity, RLS role semantics, session expiry, beta-lead hardening) is only in force once its migration is applied.
 - If you want the CAPS catalogue in production, load it by running `supabase/seed.sql` (§3) — one command, no manual pre-step. It reconciles only the known baseline by allow-list and never deletes learner data or custom admin content.
 - Confirm RLS is on for every table (it is defined in the SQL) — Supabase → Authentication → Policies.
+
+### Scheduling `cleanup_expired_sessions()`
+
+Abandoned **issued** sessions (never submitted, past `expires_at`) accumulate unless reclaimed. `cleanup_expired_sessions()` deletes them (submitted history is never touched) and is **not** auto-scheduled by a migration — pg_cron is not guaranteed to be enabled on every project, so scheduling is an explicit operational step. Choose ONE:
+
+**Option A — pg_cron (Supabase Postgres).** Only if the project's deployment contract allows the extension. Run once in the SQL editor:
+
+```sql
+create extension if not exists pg_cron;
+-- Every 15 minutes; the function is service_role/owner-only.
+select cron.schedule('cleanup-expired-quiz-sessions', '*/15 * * * *',
+  $$select public.cleanup_expired_sessions();$$);
+```
+
+Verify it is registered and running:
+
+```sql
+select jobid, schedule, command, active from cron.job where jobname = 'cleanup-expired-quiz-sessions';
+select status, start_time, end_time from cron.job_run_details
+  where jobid = (select jobid from cron.job where jobname = 'cleanup-expired-quiz-sessions')
+  order by start_time desc limit 5;
+```
+
+**Option B — Supabase Scheduled Edge Function / external cron.** Call an endpoint (or an Edge Function) on a schedule that invokes `select public.cleanup_expired_sessions();` via the service role. Verify by checking that expired issued rows disappear:
+
+```sql
+-- Should trend to 0 shortly after each run.
+select count(*) from public.quiz_sessions
+  where status is distinct from 'submitted' and expires_at < now();
+```
+
+Either way, the app stays correct without the job (the run view and submit/check reject expired sessions); the schedule only reclaims storage.
 
 ## 6. Production smoke-test checklist
 

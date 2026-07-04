@@ -11,6 +11,7 @@ import {
   type PracticeQuestion,
 } from "@/lib/math/practice";
 import { isAnswerCorrect } from "@/lib/math/check-answer";
+import { answersWithinLimit, isAnswerWithinLimit } from "@/lib/quiz/limits";
 import { selectBalancedByDifficulty, cryptoRng } from "@/lib/util/shuffle";
 import { loadSession, startSession, finalizeSession, submittedMatchesIssued, isSessionExpired } from "@/lib/quiz/session";
 import type { QuizAnswer, QuizCheckResult } from "@/components/quiz/QuizShell";
@@ -123,6 +124,11 @@ export async function submitPractice(
   if (!session || session.quizType !== "practice") return { error: "This practice session is no longer valid." };
   if (isSessionExpired(session)) return { error: "This practice has expired. Please start a new one." };
 
+  // Reject oversized answers before any grading or persistence.
+  if (!answersWithinLimit(answers)) {
+    return { error: "One of your answers is too long. Please shorten it and try again." };
+  }
+
   const submittedIds = answers.map((entry) => entry.questionId);
   if (!submittedMatchesIssued(submittedIds, session.questionIds)) {
     return { error: "Your answers didn’t match this practice set. Please try again." };
@@ -184,6 +190,10 @@ export async function checkPracticeAnswer(
 
   const admin = createServiceRoleClient();
   if (!admin) return { error: "Answer checking is unavailable right now." };
+
+  if (!isAnswerWithinLimit(submitted)) {
+    return { error: "That answer is too long. Please shorten it and try again." };
+  }
 
   const session = await loadSession(admin, String(sessionId ?? ""), id);
   if (!session || session.quizType !== "practice") return { error: "This practice session is no longer valid." };
