@@ -68,6 +68,7 @@ or paste each file from `supabase/migrations/` into the SQL editor, **in filenam
 10. `20260704113638_tighten_rls_role_semantics.sql`
 11. `20260704115128_add_session_expiry_and_cleanup.sql`
 12. `20260704130052_harden_beta_leads.sql`
+13. `20260704140000_beta_lead_db_boundary.sql`
 
 Then load CAPS content by running **`supabase/seed.sql`** — one command, no manual pre-step:
 

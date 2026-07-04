@@ -65,6 +65,7 @@ Public beta sign-ups.
 | 10 | `20260704113638_tighten_rls_role_semantics.sql` | insert/update RLS on `learner_profiles` (role `student`) and `teacher_resources` (role `teacher`) now require the matching profile role, not just ownership |
 | 11 | `20260704115128_add_session_expiry_and_cleanup.sql` | `quiz_sessions.expires_at` (default +2h) + `(learner_id, status)` / `(status, expires_at)` indexes + `cleanup_expired_sessions()` |
 | 12 | `20260704130052_harden_beta_leads.sql` | `beta_leads` length caps + `ip` column; revoke direct insert; `submit_beta_lead()` (validate + rate-limit + dedupe) |
+| 13 | `20260704140000_beta_lead_db_boundary.sql` | `beta_leads` plan allow-list check + unique `(email, plan)` index; `submit_beta_lead()` becomes service-role-only, enforces the plan allow-list, advisory-locked rate limit, and on-conflict dedup |
 
 Migrations are **additive** and apply in filename order, each **exactly once**. Most use guards (`if not exists`, drop-then-create on policies/indexes), but not all are safe to replay — treat them as one-shot, not idempotent.
 

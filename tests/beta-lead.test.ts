@@ -1,8 +1,9 @@
 import { test, expect, vi, beforeEach } from "vitest";
 
 const rpc = vi.fn();
+// The action now writes via the service-role client (the RPC is service-role-only).
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => ({ rpc })),
+  createServiceRoleClient: vi.fn(() => ({ rpc })),
 }));
 vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Map([["x-forwarded-for", "203.0.113.5, 10.0.0.1"]])),
@@ -82,4 +83,10 @@ test("an RPC error is surfaced generically", async () => {
   rpc.mockResolvedValue({ data: null, error: { message: "boom" } });
   const result = await submitBetaLead(input());
   expect(result).toEqual({ error: expect.stringContaining("couldn’t submit") });
+});
+
+test("a DB invalid_plan status surfaces the plan error", async () => {
+  rpc.mockResolvedValue({ data: "invalid_plan", error: null });
+  const result = await submitBetaLead(input());
+  expect(result).toEqual({ error: expect.stringContaining("valid plan") });
 });

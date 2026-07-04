@@ -161,6 +161,7 @@ suite, and the gated integration + E2E suites on every push/PR.
    10. `20260704113638_tighten_rls_role_semantics.sql`
    11. `20260704115128_add_session_expiry_and_cleanup.sql`
    12. `20260704130052_harden_beta_leads.sql`
+   13. `20260704140000_beta_lead_db_boundary.sql`
 4. **Run the seed** — execute `supabase/seed.sql` (one command, safe to re-run). It reconciles only the **known baseline fingerprint** by an explicit allow-list: superseded baseline rows (unattempted, unedited) are replaced by the canonical set and the empty baseline `exam-revision` topic is dropped, while **custom admin topics/questions, edited rows, and any attempted rows are preserved** → clean 14 topics / 108 questions.
 5. **Enable email/password auth** — Authentication → Providers → Email. Set the Site URL and add `<your-app>/auth/callback` as a redirect URL for email confirmation.
 6. **RLS** is defined inside the SQL — every sensitive table has RLS enabled with owner-scoped policies. `supabase/schema.sql` is a **schema-only** reference of the same objects (never a setup path).
