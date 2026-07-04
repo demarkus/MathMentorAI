@@ -59,8 +59,11 @@ Public beta sign-ups.
 | 6 | `20260704014402_secure_roles.sql` | column-scoped `profiles` UPDATE (full_name only); `complete_onboarding()` |
 | 7 | `20260704020846_protect_answer_keys.sql` | column-scoped `questions` SELECT (withholds answer keys) |
 | 8 | `20260704022709_trusted_submission.sql` | revoke client INSERT on `attempts`/`quiz_sessions`/`reports`; issued-session columns; `finalize_quiz_submission()` |
+| 9 | `20260704110237_enforce_question_topic_grade.sql` | composite FK `questions(topic_id, grade)` → `topics(id, grade)` so a question's grade must match its topic's grade |
 
 All migrations are **additive and idempotent** (guards on tables, indexes, and policies).
+
+A question's `grade` must equal its topic's `grade`: migration 9 adds a unique key on `topics(id, grade)` and a composite FK from `questions(topic_id, grade)`. The admin create/edit actions also verify the pair server-side for a friendly error before the DB rejects it.
 
 ## Seed data (`supabase/seed.sql`)
 

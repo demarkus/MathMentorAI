@@ -49,7 +49,9 @@ create table public.topics (
   curriculum_tag text not null default 'CAPS',
   display_order integer not null default 0,
   created_at timestamptz not null default now(),
-  unique (grade, slug)
+  unique (grade, slug),
+  -- Composite-FK target: lets questions bind (topic_id, grade) to a topic's grade.
+  constraint topics_id_grade_key unique (id, grade)
 );
 
 create table public.questions (
@@ -64,7 +66,10 @@ create table public.questions (
   cognitive_level text not null default 'routine procedure',
   marks integer not null default 1 check (marks > 0),
   is_active boolean not null default true,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- A question's grade must match its topic's grade (enforced declaratively).
+  constraint questions_topic_grade_fk foreign key (topic_id, grade)
+    references public.topics (id, grade) on delete cascade
 );
 
 create table public.quiz_sessions (
