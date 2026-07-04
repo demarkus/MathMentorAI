@@ -28,21 +28,23 @@ export function anonClient(): SupabaseClient {
 }
 
 export type AppRole = "student" | "teacher" | "admin" | "parent";
-export type TestUser = { id: string; email: string; password: string; role: AppRole };
+export type TestUser = { id: string; email: string; password: string; role: AppRole | null };
 
 let seq = 0;
-function uniqueEmail(role: AppRole): string {
+function uniqueEmail(role: AppRole | null): string {
   seq += 1;
-  return `it-${role}-${Date.now()}-${seq}@mathmentor.test`;
+  return `it-${role ?? "norole"}-${Date.now()}-${seq}@mathmentor.test`;
 }
 
 /**
- * Creates a confirmed auth user (so sign-in works without a real mailbox) and
- * sets their profile role. Learners also get a learner_profiles row. Returns the
- * credentials for signing in as that user.
+ * Creates a confirmed auth user (so sign-in works without a real mailbox). A
+ * non-null role is written to the profile (students also get a learner_profiles
+ * row); a null role is left as the trigger created it (role unset), so the
+ * onboarding function can be exercised from a clean state.
  */
-export async function createTestUser(role: AppRole, opts?: { grade?: number }): Promise<TestUser> {
+export async function createTestUser(role: AppRole | null, opts?: { grade?: number }): Promise<TestUser> {
   const svc = serviceClient();
+  const label = role ?? "unroled";
   const email = uniqueEmail(role);
   const password = "Test-Passw0rd!";
 
@@ -50,22 +52,24 @@ export async function createTestUser(role: AppRole, opts?: { grade?: number }): 
     email,
     password,
     email_confirm: true,
-    user_metadata: { full_name: `IT ${role}` },
+    user_metadata: { full_name: `IT ${label}` },
   });
   if (created.error || !created.data.user) {
     throw new Error(`admin.createUser failed: ${created.error?.message}`);
   }
   const id = created.data.user.id;
 
-  // The handle_new_user trigger inserts a profiles row with a null role; set it.
-  const profile = await svc
-    .from("profiles")
-    .upsert({ id, email, full_name: `IT ${role}`, role }, { onConflict: "id" });
-  if (profile.error) throw new Error(`profiles upsert failed: ${profile.error.message}`);
+  // The handle_new_user trigger inserts a profiles row with a null role.
+  if (role) {
+    const profile = await svc
+      .from("profiles")
+      .upsert({ id, email, full_name: `IT ${label}`, role }, { onConflict: "id" });
+    if (profile.error) throw new Error(`profiles upsert failed: ${profile.error.message}`);
 
-  if (role === "student") {
-    const learner = await svc.from("learner_profiles").upsert({ user_id: id, grade: opts?.grade ?? 9 });
-    if (learner.error) throw new Error(`learner_profiles upsert failed: ${learner.error.message}`);
+    if (role === "student") {
+      const learner = await svc.from("learner_profiles").upsert({ user_id: id, grade: opts?.grade ?? 9 });
+      if (learner.error) throw new Error(`learner_profiles upsert failed: ${learner.error.message}`);
+    }
   }
 
   return { id, email, password, role };
@@ -85,6 +89,20 @@ export async function learnerProfileId(userId: string): Promise<string> {
   const { data, error } = await svc.from("learner_profiles").select("id").eq("user_id", userId).single();
   if (error || !data) throw new Error(`learner_profiles lookup failed: ${error?.message}`);
   return (data as { id: string }).id;
+}
+
+/** Reads a user's profile role via the service client (bypasses RLS). */
+export async function getProfileRole(userId: string): Promise<string | null> {
+  const svc = serviceClient();
+  const { data } = await svc.from("profiles").select("role").eq("id", userId).maybeSingle();
+  return (data as { role: string | null } | null)?.role ?? null;
+}
+
+/** True when the user has a learner_profiles row (service client). */
+export async function hasLearnerProfile(userId: string): Promise<boolean> {
+  const svc = serviceClient();
+  const { data } = await svc.from("learner_profiles").select("id").eq("user_id", userId).maybeSingle();
+  return Boolean(data);
 }
 
 /** Best-effort teardown — deleting the auth user cascades to owned rows. */
