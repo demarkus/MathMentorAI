@@ -18,6 +18,7 @@ Learner-specific data.
 ### `topics`
 CAPS topic catalogue.
 - `id`, `grade` (9/10), `name`, `slug`, `description`, `curriculum_tag` (default `CAPS`), `display_order`, `created_at`.
+- `curriculum_tag` is a **self-applied** label (the content is structured around CAPS Grade 9–10 algebra), **not** an independently-reviewed alignment. See [CURRICULUM_VALIDATION.md](CURRICULUM_VALIDATION.md).
 - Unique on `(grade, slug)` — the same slug can exist in both grades.
 
 ### `questions`
