@@ -5,14 +5,23 @@
 -- 14 topics (7 per grade) and 108 questions.
 --
 -- Single command, no manual pre-step, safe to re-run, never deletes learner
--- data. The initial migration (20260630012144) seeds a smaller baseline
--- (9 topics / 30 questions, e.g. x²) that would otherwise leave near-duplicates.
--- Instead of the old "delete everything first" instruction, the reconciliation
--- block below removes ONLY catalogue rows that no learner has attempted:
---   * a fresh database (no attempts yet) → baseline is cleared, you get exactly
---     14 topics / 108 questions with no duplicates and no stray topics.
---   * a database with learner history → every attempted question (and its topic)
---     is preserved; only the untouched baseline is reconciled to the canonical set.
+-- data OR custom admin content. The initial migration (20260630012144) seeds a
+-- smaller baseline (9 topics / 30 questions) using unicode superscript notation
+-- (x², a⁸, ×, ÷) plus an 'exam-revision' topic. This canonical catalogue uses
+-- caret notation (x^2, a^8) and drops exam-revision, so the superseded baseline
+-- rows would otherwise linger as near-duplicates.
+--
+-- Reconciliation is by explicit ALLOW-LIST, not "delete everything unattempted".
+-- We remove ONLY rows that exactly match the known baseline fingerprint
+-- (grade + slug + question_text + answer_text + hint) AND have no attempts.
+-- This guarantees:
+--   * a custom admin question never matches the fingerprint            → preserved;
+--   * a baseline row edited in any fingerprint field no longer matches → preserved;
+--   * an attempted baseline row is preserved (history is never lost);
+--   * a custom topic (empty or not) is never dropped — only the known baseline
+--     'exam-revision' topic is removed, and only once it is empty;
+--   * identical-text baseline rows already equal to canonical content are left
+--     in place (no delete/re-insert churn), so the seed stays cleanly rerunnable.
 --
 -- Do not seed profiles here because profiles depend on auth.users.
 --
@@ -26,16 +35,47 @@
 -- answer_text, hint, solution_steps (jsonb array), difficulty, marks, is_active.
 -- There is no explanation_text column; worked steps live in solution_steps.
 
--- Reconcile the migration baseline without touching learner data --------------
--- Remove only questions no learner has attempted (attempts.question_id → questions
--- is ON DELETE CASCADE, so filtering on "no attempts" guarantees no history is
--- lost), then drop any topic left with no questions (e.g. the baseline
--- 'exam-revision' topic). On a fresh database this clears the entire baseline;
--- with learner data it keeps everything a learner has used.
+-- Reconcile the migration baseline without touching learner or custom data ----
+-- The allow-list holds only the SUPERSEDED baseline rows (those whose text is not
+-- part of this canonical catalogue); identical-text baseline rows already equal
+-- the canonical content and are intentionally omitted so re-runs cause no churn.
+with superseded_baseline(grade, slug, question_text, answer_text, hint) as (
+  values
+    (9,  'factorisation',          'Factorise: x² + 5x + 6',      '(x+2)(x+3)',   'Find factors of 6 that add to 5.'),
+    (9,  'factorisation',          'Factorise: x² - 9',           '(x-3)(x+3)',   'Use difference of squares.'),
+    (9,  'exponents',              'Simplify: x³ × x⁴',           'x^7',          'Add exponents with the same base.'),
+    (9,  'exponents',              'Simplify: a⁸ ÷ a³',           'a^5',          'Subtract exponents.'),
+    (9,  'exponents',              'Simplify: (m²)³',             'm^6',          'Multiply the exponents.'),
+    (9,  'exponents',              'Evaluate: 2⁻³',               '1/8',          'A negative exponent means reciprocal.'),
+    (10, 'factorisation',          'Factorise: x² + 7x + 12',     '(x+3)(x+4)',   'Find factors of 12 that add to 7.'),
+    (10, 'factorisation',          'Factorise: 4x² - 25',         '(2x-5)(2x+5)', 'Use difference of squares.'),
+    (10, 'factorisation',          'Factorise: 2x² + 7x + 3',     '(2x+1)(x+3)',  'Split the middle term using 6 and 1.'),
+    (10, 'factorisation',          'Factorise: x³ - 4x',          'x(x-2)(x+2)',  'Take out x first.'),
+    (10, 'algebraic-fractions',    'Simplify: 6x/3',              '2x',           'Divide the coefficient by 3.'),
+    (10, 'algebraic-fractions',    'Simplify: (x² - 9)/(x - 3)',  'x+3',          'Factor the numerator first.'),
+    (10, 'simultaneous-equations', 'Solve for x: x + y = 10 and y = 4', '6',      'Substitute y = 4.'),
+    (10, 'functions',              'If g(x) = x² - 4, find g(5)', '21',           'Substitute x = 5.'),
+    (10, 'exam-revision',          'Solve: x² - 5x + 6 = 0',      'x=2orx=3',     'Factorise, then use the zero-product rule.')
+)
 delete from public.questions q
-  where not exists (select 1 from public.attempts a where a.question_id = q.id);
+using public.topics t, superseded_baseline b
+where q.topic_id = t.id
+  and t.grade = b.grade
+  and t.slug = b.slug
+  and q.grade = b.grade
+  and q.question_text = b.question_text
+  and q.answer_text = b.answer_text
+  and q.hint = b.hint
+  and not exists (select 1 from public.attempts a where a.question_id = q.id);
+
+-- Remove ONLY the known baseline 'exam-revision' topic, and only once it is empty
+-- (its single baseline question removed above and unattempted). Any other empty
+-- topic — including custom admin topics — is deliberately left untouched.
 delete from public.topics t
-  where not exists (select 1 from public.questions q where q.topic_id = t.id);
+where t.grade = 10
+  and t.slug = 'exam-revision'
+  and t.name = 'Exam-style revision'
+  and not exists (select 1 from public.questions q where q.topic_id = t.id);
 
 -- Topics ------------------------------------------------------------------------
 

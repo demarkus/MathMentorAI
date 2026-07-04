@@ -65,7 +65,7 @@ Public beta sign-ups.
 | 11 | `20260704115128_add_session_expiry_and_cleanup.sql` | `quiz_sessions.expires_at` (default +2h) + `(learner_id, status)` / `(status, expires_at)` indexes + `cleanup_expired_sessions()` |
 | 12 | `20260704130052_harden_beta_leads.sql` | `beta_leads` length caps + `ip` column; revoke direct insert; `submit_beta_lead()` (validate + rate-limit + dedupe) |
 
-All migrations are **additive and idempotent** (guards on tables, indexes, and policies).
+Migrations are **additive** and apply in filename order, each **exactly once**. Most use guards (`if not exists`, drop-then-create on policies/indexes), but not all are safe to replay — treat them as one-shot, not idempotent.
 
 A question's `grade` must equal its topic's `grade`: migration 9 adds a unique key on `topics(id, grade)` and a composite FK from `questions(topic_id, grade)`. The admin create/edit actions also verify the pair server-side for a friendly error before the DB rejects it.
 
@@ -73,7 +73,8 @@ A question's `grade` must equal its topic's `grade`: migration 9 adds a unique k
 
 - **14 topics** — 7 per grade: Factorisation, Linear equations, Algebraic fractions, Simultaneous equations, Exponents, Functions basics, Number patterns.
 - **108 questions** — 54 Grade 9 + 54 Grade 10, spread across those topics, with `answer_text`, `hint`, and `solution_steps`.
-- **Idempotent** — topics upsert on `(grade, slug)`; questions insert only when an identical `question_text` isn't already present for that topic. Topics are resolved by `grade + slug` join (no hardcoded UUIDs).
+- **Safe to re-run** — topics upsert on `(grade, slug)`; questions insert only when an identical `question_text` isn't already present for that topic (topics resolved by `grade + slug` join, no hardcoded UUIDs).
+- **Non-destructive reconciliation** — the migration baseline is reconciled by an explicit allow-list of the known baseline fingerprint (grade + slug + question_text + answer_text + hint). Only unattempted, unedited baseline rows are removed and the empty baseline `exam-revision` topic is dropped; **custom topics/questions, edited baseline rows, and any attempted rows are always preserved**.
 
 ## RLS overview
 
