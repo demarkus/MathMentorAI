@@ -49,6 +49,26 @@ function validate(input: QuestionInput): { values?: Record<string, unknown>; err
   };
 }
 
+/**
+ * Confirms the chosen topic exists and belongs to the submitted grade. A
+ * mismatched pair would render in topic practice but be rejected at submission,
+ * so it is refused here (and, as a backstop, by the questions(topic_id, grade)
+ * composite FK in the database).
+ */
+async function assertTopicMatchesGrade(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  topicId: string,
+  grade: number,
+): Promise<string | null> {
+  if (!admin) return null; // caller already surfaced the config error
+  const { data, error } = await admin.from("topics").select("grade").eq("id", topicId).maybeSingle();
+  if (error) return "We couldn’t verify the topic. Please try again.";
+  const topic = data as { grade: number } | null;
+  if (!topic) return "That topic no longer exists. Please choose another.";
+  if (topic.grade !== grade) return "That topic belongs to a different grade. Choose a topic that matches the grade.";
+  return null;
+}
+
 export async function createQuestion(input: QuestionInput): Promise<QuestionActionResult> {
   await requireRole("admin");
 
@@ -57,6 +77,9 @@ export async function createQuestion(input: QuestionInput): Promise<QuestionActi
 
   const admin = createServiceRoleClient();
   if (!admin) return { error: "Content management is unavailable: the service role key is not configured." };
+
+  const mismatch = await assertTopicMatchesGrade(admin, values.topic_id as string, values.grade as number);
+  if (mismatch) return { error: mismatch };
 
   const { error: insertError } = await admin.from("questions").insert(values);
   if (insertError) return { error: "We couldn’t save this question. Please check the fields and try again." };
@@ -75,6 +98,9 @@ export async function updateQuestion(id: string, input: QuestionInput): Promise<
 
   const admin = createServiceRoleClient();
   if (!admin) return { error: "Content management is unavailable: the service role key is not configured." };
+
+  const mismatch = await assertTopicMatchesGrade(admin, values.topic_id as string, values.grade as number);
+  if (mismatch) return { error: mismatch };
 
   const { error: updateError } = await admin.from("questions").update(values).eq("id", questionId);
   if (updateError) return { error: "We couldn’t update this question. Please check the fields and try again." };
