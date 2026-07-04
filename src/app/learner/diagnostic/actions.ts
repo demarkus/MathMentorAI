@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { gradeDiagnostic, encodeSummary, type DiagnosticQuestion } from "@/lib/math/diagnostic";
 import { createQuizSession, insertAttempts, createReport } from "@/lib/quiz/persistence";
 import type { QuizAnswer } from "@/components/quiz/QuizShell";
@@ -40,7 +40,12 @@ export async function submitDiagnostic(answers: QuizAnswer[]): Promise<{ error?:
   const ids = answers.map((entry) => entry.questionId).filter(Boolean);
   if (ids.length === 0) return { error: "No answers were submitted." };
 
-  const { data, error } = await supabase
+  // Answer keys are not readable through the Data API — mark server-side via the
+  // trusted service-role client.
+  const admin = createServiceRoleClient();
+  if (!admin) return { error: "We couldn’t mark your answers right now. Please try again." };
+
+  const { data, error } = await admin
     .from("questions")
     .select("id, grade, marks, difficulty, question_text, answer_text, topic_id, topics(name, slug)")
     .in("id", ids)

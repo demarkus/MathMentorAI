@@ -6,21 +6,19 @@ import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { TopicCard, type CatalogueTopic } from "@/components/dashboard/TopicCard";
 import { QuizShell, type QuizShellQuestion } from "@/components/quiz/QuizShell";
-import { selectPracticeQuestions, explanationFor, PRACTICE_MAX_QUESTIONS } from "@/lib/math/practice";
-import type { PracticeQuestion } from "@/lib/math/practice";
-import { submitPractice } from "../actions";
+import { PRACTICE_MAX_QUESTIONS } from "@/lib/math/practice";
+import { submitPractice, checkPracticeAnswer } from "../actions";
 
 const VALID_GRADES = [9, 10];
 
+// Answer keys are not selected here — they are read server-side (checkPracticeAnswer
+// / submitPractice) so they never enter the client bundle.
 type QuestionRow = {
   id: string;
   grade: number;
   marks: number;
   difficulty: string;
   question_text: string;
-  answer_text: string;
-  hint: string;
-  solution_steps: string[] | null;
   topic_id: string;
 };
 
@@ -92,26 +90,13 @@ export default async function TopicPracticePage({
   const topic = matchedTopics[0];
   const { data: questionData } = await supabase
     .from("questions")
-    .select("id, grade, marks, difficulty, question_text, answer_text, hint, solution_steps, topic_id")
+    .select("id, grade, marks, difficulty, question_text, topic_id")
     .eq("topic_id", topic.id)
     .eq("is_active", true)
     .order("marks", { ascending: true })
     .limit(PRACTICE_MAX_QUESTIONS);
 
-  const allQuestions: PracticeQuestion[] = ((questionData ?? []) as unknown as QuestionRow[]).map((row) => ({
-    id: row.id,
-    question_text: row.question_text,
-    answer_text: row.answer_text,
-    hint: row.hint,
-    solution_steps: Array.isArray(row.solution_steps) ? row.solution_steps : [],
-    difficulty: row.difficulty,
-    marks: row.marks,
-    grade: row.grade,
-    topic_id: row.topic_id,
-    topicName: topic.name,
-    topicSlug: topic.slug,
-  }));
-  const questions = selectPracticeQuestions(allQuestions);
+  const questions = (questionData ?? []) as unknown as QuestionRow[];
 
   if (questions.length === 0) {
     return (
@@ -126,18 +111,15 @@ export default async function TopicPracticePage({
     );
   }
 
-  // Practice reveals answers/explanations after each attempt (formative), so
-  // they are sent to the client here — unlike the diagnostic.
+  // Only render fields reach the client. Correctness + answer + explanation come
+  // from the trusted checkPracticeAnswer action after each check.
   const quizQuestions: QuizShellQuestion[] = questions.map((question) => ({
     id: question.id,
     question_text: question.question_text,
     difficulty: question.difficulty,
     marks: question.marks,
-    topicName: question.topicName,
+    topicName: topic.name,
     grade: question.grade,
-    answerText: question.answer_text,
-    hint: question.hint,
-    explanation: explanationFor(question),
   }));
 
   const onSubmit = submitPractice.bind(null, topic.slug, topic.grade);
@@ -153,7 +135,13 @@ export default async function TopicPracticePage({
           worked explanation, then submit to save your results.
         </p>
       </div>
-      <QuizShell questions={quizQuestions} onSubmit={onSubmit} submitLabel="Finish & see results" reveal />
+      <QuizShell
+        questions={quizQuestions}
+        onSubmit={onSubmit}
+        onCheck={checkPracticeAnswer}
+        submitLabel="Finish & see results"
+        reveal
+      />
     </div>
   );
 }

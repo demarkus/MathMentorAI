@@ -5,7 +5,6 @@ import { QuestionCard } from "./QuestionCard";
 import { AnswerInput } from "./AnswerInput";
 import { QuizProgress } from "./QuizProgress";
 import { WorkedSteps, HintBox } from "./Explanation";
-import { isAnswerCorrect } from "@/lib/math/check-answer";
 import { describeExpectedAnswer } from "@/lib/math/answer-format";
 
 export type QuizShellQuestion = {
@@ -15,13 +14,18 @@ export type QuizShellQuestion = {
   marks: number;
   topicName?: string;
   grade?: number;
-  // Only supplied in reveal (practice) mode — used for immediate feedback.
-  answerText?: string;
-  hint?: string;
-  explanation?: string[];
 };
 
 export type QuizAnswer = { questionId: string; answer: string };
+
+/** Result of the trusted per-question check (reveal mode). Answers are never
+ * shipped to the client up front; they are returned by onCheck after scoring. */
+export type QuizCheckResult = {
+  isCorrect: boolean;
+  correctAnswer: string;
+  explanation: string[];
+  hint: string;
+};
 
 /**
  * Stateful, one-question-at-a-time quiz container with Previous/Next navigation
@@ -31,37 +35,39 @@ export type QuizAnswer = { questionId: string; answer: string };
  * Two modes:
  * - default (diagnostic): answers are collected and submitted; correct answers
  *   are never sent to the client.
- * - reveal (practice): a "Check answer" step shows immediate feedback (correct/
- *   incorrect, the correct answer, and the explanation) before advancing.
+ * - reveal (practice): "Check answer" calls `onCheck` (a trusted server action)
+ *   which scores the answer server-side and returns the correct answer and
+ *   explanation to reveal. Answer keys are not present in the client bundle.
  */
 export function QuizShell({
   questions,
   onSubmit,
+  onCheck,
   submitLabel = "Submit",
   reveal = false,
 }: {
   questions: QuizShellQuestion[];
   onSubmit: (answers: QuizAnswer[]) => Promise<{ error?: string } | void>;
+  onCheck?: (questionId: string, answer: string) => Promise<QuizCheckResult | { error?: string }>;
   submitLabel?: string;
   reveal?: boolean;
 }) {
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const [checks, setChecks] = useState<Record<string, QuizCheckResult>>({});
+  const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Synchronous guard: `saving` state updates asynchronously, so two submits in
   // the same tick (e.g. Enter + click) could both pass a state-only check and
   // fire onSubmit twice. This ref blocks concurrent submits deterministically.
-  // (Cross-request idempotency — back-button/retry — would need a schema-level
-  // dedup key, which is intentionally out of scope here.)
   const submittingRef = useRef(false);
 
   const question = questions[index];
   const isLast = index === questions.length - 1;
   const answeredCount = questions.filter((item) => (answers[item.id] ?? "").trim().length > 0).length;
-  const isRevealed = reveal && Boolean(revealed[question.id]);
-  const isCorrect = isRevealed && isAnswerCorrect(answers[question.id] ?? "", question.answerText ?? "");
+  const check = checks[question.id];
+  const isRevealed = reveal && Boolean(check);
 
   function setAnswer(value: string) {
     setAnswers((prev) => ({ ...prev, [question.id]: value }));
@@ -74,8 +80,23 @@ export function QuizShell({
     setError(null);
     setIndex((value) => Math.min(questions.length - 1, value + 1));
   }
-  function revealCurrent() {
-    setRevealed((prev) => ({ ...prev, [question.id]: true }));
+
+  async function checkCurrent() {
+    if (!onCheck || checking || checks[question.id]) return;
+    setChecking(true);
+    setError(null);
+    try {
+      const result = await onCheck(question.id, answers[question.id] ?? "");
+      if ("isCorrect" in result) {
+        setChecks((prev) => ({ ...prev, [question.id]: result }));
+      } else {
+        setError(result.error ?? "We couldn’t check your answer. Please try again.");
+      }
+    } catch {
+      setError("We couldn’t check your answer just now. Please try again.");
+    } finally {
+      setChecking(false);
+    }
   }
 
   async function handleSubmit() {
@@ -103,11 +124,11 @@ export function QuizShell({
 
   function onEnter() {
     if (reveal && !isRevealed) {
-      revealCurrent();
+      void checkCurrent();
     } else if (!isLast) {
       goNext();
     } else {
-      handleSubmit();
+      void handleSubmit();
     }
   }
 
@@ -115,8 +136,8 @@ export function QuizShell({
   let primaryButton;
   if (reveal && !isRevealed) {
     primaryButton = (
-      <button type="button" onClick={revealCurrent} disabled={saving} className={primaryClass}>
-        Check answer
+      <button type="button" onClick={checkCurrent} disabled={saving || checking} className={primaryClass}>
+        {checking ? "Checking…" : "Check answer"}
       </button>
     );
   } else if (!isLast) {
@@ -143,7 +164,7 @@ export function QuizShell({
           topicName={question.topicName}
           grade={question.grade}
           questionText={question.question_text}
-          expectedAnswerNote={describeExpectedAnswer(question.question_text, question.answerText)}
+          expectedAnswerNote={describeExpectedAnswer(question.question_text)}
         >
           <div className="mt-8">
             <AnswerInput
@@ -156,36 +177,36 @@ export function QuizShell({
         </QuestionCard>
       </div>
 
-      {isRevealed && (
+      {isRevealed && check && (
         <div
           role="status"
           className={`mt-6 space-y-3 rounded-xl p-4 text-sm ${
-            isCorrect ? "bg-green-50 text-green-900" : "bg-amber-50 text-amber-950"
+            check.isCorrect ? "bg-green-50 text-green-900" : "bg-amber-50 text-amber-950"
           }`}
         >
           <p className="font-semibold">
-            {isCorrect ? "Correct — nicely done!" : "Not quite — let's work through it together."}
+            {check.isCorrect ? "Correct — nicely done!" : "Not quite — let's work through it together."}
           </p>
 
-          {!isCorrect && (
+          {!check.isCorrect && (
             <p>
               Your answer:{" "}
               <span className="font-mono font-semibold">{(answers[question.id] ?? "").trim() || "—"}</span>
             </p>
           )}
           <p>
-            {isCorrect ? "Accepted answer" : "Correct answer"}:{" "}
-            <span className="font-mono font-semibold">{question.answerText}</span>
+            {check.isCorrect ? "Accepted answer" : "Correct answer"}:{" "}
+            <span className="font-mono font-semibold">{check.correctAnswer}</span>
           </p>
 
-          {!isCorrect && question.hint && <HintBox hint={question.hint} className="bg-white/60" />}
+          {!check.isCorrect && check.hint && <HintBox hint={check.hint} className="bg-white/60" />}
 
           <div>
             <p className="font-semibold">Worked steps</p>
-            <WorkedSteps steps={question.explanation ?? []} className="mt-1" />
+            <WorkedSteps steps={check.explanation} className="mt-1" />
           </div>
 
-          {!isCorrect && (
+          {!check.isCorrect && (
             <p className="text-xs">
               Take a moment to review the steps above — you can retry this topic anytime.
             </p>

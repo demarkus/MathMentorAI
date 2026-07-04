@@ -150,6 +150,20 @@ describe.skipIf(!hasIntegrationEnv)("RLS boundaries", () => {
       const a = await signInAs(learnerA);
       expect((await a.from("questions").select("id").eq("id", inactiveQuestionId)).data).toEqual([]);
     });
+
+    test("answer keys are not readable through the Data API", async () => {
+      const anon = anonClient();
+      // Selecting answer columns is denied (column-level grant), for anon…
+      expect((await anon.from("questions").select("answer_text").eq("id", activeQuestionId)).error).not.toBeNull();
+      expect((await anon.from("questions").select("solution_steps").eq("id", activeQuestionId)).error).not.toBeNull();
+      // …and for an authenticated learner.
+      const a = await signInAs(learnerA);
+      expect((await a.from("questions").select("hint").eq("id", activeQuestionId)).error).not.toBeNull();
+      // Render columns remain readable.
+      const ok = await anon.from("questions").select("id, question_text, marks").eq("id", activeQuestionId);
+      expect(ok.error).toBeNull();
+      expect(ok.data).toEqual([{ id: activeQuestionId, question_text: expect.any(String), marks: expect.any(Number) }]);
+    });
   });
 
   describe("teacher_resources", () => {
