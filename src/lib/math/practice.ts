@@ -119,7 +119,7 @@ export function buildPracticeRecommendation(summary: PracticeSummary): string {
   return "Nice progress — retry this topic to lock it in, or move on to a new one.";
 }
 
-/** Runtime guard for a summary loaded from an untrusted source (URL or DB jsonb). */
+/** Runtime guard for a summary loaded from the persisted report jsonb. */
 export function isPracticeSummary(value: unknown): value is PracticeSummary {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Record<string, unknown>;
@@ -128,18 +128,4 @@ export function isPracticeSummary(value: unknown): value is PracticeSummary {
     typeof candidate.topicName === "string" &&
     Array.isArray(candidate.questions)
   );
-}
-
-/** Compact, URL-safe transport of the summary (fallback when reports table is absent). */
-export function encodePracticeSummary(summary: PracticeSummary): string {
-  return Buffer.from(JSON.stringify(summary)).toString("base64url");
-}
-
-export function decodePracticeSummary(data: string): PracticeSummary | null {
-  try {
-    const parsed: unknown = JSON.parse(Buffer.from(data, "base64url").toString("utf8"));
-    return isPracticeSummary(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
 }

@@ -1,8 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import {
-  decodePracticeSummary,
   isPracticeSummary,
   buildPracticeRecommendation,
   type PracticeSummary,
@@ -11,9 +11,20 @@ import { resultBand } from "@/lib/math/result-band";
 import { WorkedSteps } from "@/components/quiz/Explanation";
 import { Badge } from "@/components/ui/Badge";
 
+/**
+ * Loads a persisted practice report the learner owns. Results are only ever read
+ * from the reports table (RLS-scoped to the owner) — there is no unsigned
+ * client-supplied fallback. The report_type must be `practice`, so a valid
+ * diagnostic/progress report id cannot be rendered here.
+ */
 async function loadReport(reportId: string): Promise<PracticeSummary | null> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("reports").select("data").eq("id", reportId).maybeSingle();
+  const { data, error } = await supabase
+    .from("reports")
+    .select("data, report_type")
+    .eq("id", reportId)
+    .eq("report_type", "practice")
+    .maybeSingle();
   if (error || !data) return null;
   const payload = (data as { data: unknown }).data;
   return isPracticeSummary(payload) ? payload : null;
@@ -24,15 +35,20 @@ export default async function PracticeResultPage({
   searchParams,
 }: {
   params: Promise<{ topicSlug: string }>;
-  searchParams: Promise<{ report?: string; data?: string }>;
+  searchParams: Promise<{ report?: string }>;
 }) {
   await requireRole("learner");
   const { topicSlug } = await params;
-  const { report, data } = await searchParams;
+  const { report } = await searchParams;
 
-  let summary: PracticeSummary | null = null;
-  if (report) summary = await loadReport(report);
-  if (!summary && data) summary = decodePracticeSummary(data);
+  const summary: PracticeSummary | null = report ? await loadReport(report) : null;
+
+  // A practice report is canonical to its own topic. If the route slug doesn't
+  // match the report's topic, redirect to the report's canonical URL so the
+  // heading, review, and retry links are always consistent with the data.
+  if (summary && report && summary.topicSlug && summary.topicSlug !== topicSlug) {
+    redirect(`/learner/practice/${summary.topicSlug}/result?report=${report}`);
+  }
 
   if (!summary) {
     return (

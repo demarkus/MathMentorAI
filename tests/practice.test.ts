@@ -5,8 +5,6 @@ import {
   gradePractice,
   buildPracticeRecommendation,
   isPracticeSummary,
-  encodePracticeSummary,
-  decodePracticeSummary,
   PRACTICE_MAX_QUESTIONS,
   type PracticeQuestion,
   type PracticeSummary,
@@ -84,13 +82,13 @@ test("buildPracticeRecommendation: strong / low / mid-with-mistakes", () => {
   expect(buildPracticeRecommendation(mid)).toMatch(/review/i);
 });
 
-test("encode/decode practice summary round-trips and the guard validates shape", () => {
+test("the practice summary guard validates shape", () => {
   const summary: PracticeSummary = {
     topicName: "A", topicSlug: "a", grade: 9, score: 5, totalMarks: 10, correct: 5, totalQuestions: 10, percentage: 50,
     questions: [],
   };
-  expect(decodePracticeSummary(encodePracticeSummary(summary))).toEqual(summary);
   expect(isPracticeSummary(summary)).toBe(true);
   expect(isPracticeSummary({})).toBe(false);
-  expect(decodePracticeSummary("!!not-valid!!")).toBe(null);
+  expect(isPracticeSummary(null)).toBe(false);
+  expect(isPracticeSummary({ percentage: 50 })).toBe(false);
 });
