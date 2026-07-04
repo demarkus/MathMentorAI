@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { gradeDiagnostic, selectDiagnosticQuestions, type DiagnosticQuestion } from "@/lib/math/diagnostic";
 import { loadLearnerContext } from "@/lib/learner/profile";
+import { answersWithinLimit } from "@/lib/quiz/limits";
 import { loadSession, startSession, finalizeSession, submittedMatchesIssued, isSessionExpired } from "@/lib/quiz/session";
 import type { QuizAnswer } from "@/components/quiz/QuizShell";
 
@@ -117,6 +118,11 @@ export async function submitDiagnostic(
   const session = await loadSession(admin, String(sessionId ?? ""), learnerId);
   if (!session || session.quizType !== "diagnostic") return { error: "This diagnostic session is no longer valid." };
   if (isSessionExpired(session)) return { error: "This diagnostic has expired. Please start a new one." };
+
+  // Reject oversized answers before any grading or persistence.
+  if (!answersWithinLimit(answers)) {
+    return { error: "One of your answers is too long. Please shorten it and try again." };
+  }
 
   const submittedIds = answers.map((entry) => entry.questionId);
   if (!submittedMatchesIssued(submittedIds, session.questionIds)) {

@@ -97,6 +97,7 @@ create table public.attempts (
   is_correct boolean not null,
   score numeric not null default 0 check (score >= 0),
   time_spent_seconds integer check (time_spent_seconds >= 0),
+  constraint attempts_answer_len_ck check (char_length(submitted_answer) <= 500),
   quiz_session_id uuid references public.quiz_sessions(id) on delete set null,
   created_at timestamptz not null default now()
 );
@@ -151,6 +152,8 @@ create index questions_topic_active_idx on public.questions (topic_id, is_active
 create index quiz_sessions_learner_created_idx on public.quiz_sessions (learner_id, created_at desc);
 create index quiz_sessions_learner_status_idx on public.quiz_sessions (learner_id, status);
 create index quiz_sessions_status_expires_idx on public.quiz_sessions (status, expires_at);
+create index quiz_sessions_learner_issued_idx
+  on public.quiz_sessions (learner_id, quiz_type, topic_id, grade) where status = 'issued';
 create unique index quiz_sessions_submission_key_key
   on public.quiz_sessions (submission_key) where submission_key is not null;
 create index reports_learner_created_idx on public.reports (learner_id, created_at desc);

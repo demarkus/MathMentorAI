@@ -66,6 +66,9 @@ Public beta sign-ups.
 | 11 | `20260704115128_add_session_expiry_and_cleanup.sql` | `quiz_sessions.expires_at` (default +2h) + `(learner_id, status)` / `(status, expires_at)` indexes + `cleanup_expired_sessions()` |
 | 12 | `20260704130052_harden_beta_leads.sql` | `beta_leads` length caps + `ip` column; revoke direct insert; `submit_beta_lead()` (validate + rate-limit + dedupe) |
 | 13 | `20260704140000_beta_lead_db_boundary.sql` | `beta_leads` plan allow-list check + unique `(email, plan)` index; `submit_beta_lead()` becomes service-role-only, enforces the plan allow-list, advisory-locked rate limit, and on-conflict dedup |
+| 14 | `20260704150000_bound_quiz_abuse.sql` | `attempts` answer-length CHECK (≤500, backstop); partial index on active issued `quiz_sessions` for the reuse/cap lookup |
+
+**Quiz abuse/storage bounds:** submitted answers are capped at 500 chars in the browser (`maxLength`), the Server Actions (rejected before grading/persistence), and the DB (`attempts_answer_len_ck`). A learner cannot pile up unbounded issued sessions: `startSession` reuses a still-active session of the same type/topic/grade (so a refresh or double-click resumes), and otherwise enforces a cap of `MAX_ACTIVE_ISSUED_SESSIONS` (10) simultaneously-issued sessions. Idempotent finalisation and retries are unchanged.
 
 Migrations are **additive** and apply in filename order, each **exactly once**. Most use guards (`if not exists`, drop-then-create on policies/indexes), but not all are safe to replay — treat them as one-shot, not idempotent.
 
@@ -98,4 +101,4 @@ Notes:
 - `questions` answer keys (`answer_text`, `hint`, `solution_steps`) are **not granted** to anon/authenticated; only render columns are. `profiles.role`/`email` are **not client-updatable**.
 - `attempts`/`quiz_sessions`/`reports` **cannot be inserted by clients**; writes go through the trusted, atomic, idempotent `finalize_quiz_submission()` function (`service_role` only), and quiz sessions are created server-side with a persisted issued question set.
 - Server code reaches answer keys / writes via the **service-role client**, only ever after `requireRole(...)` and server-derived ownership.
-- Functions: `handle_new_user` (trigger), `complete_onboarding` (authenticated), `finalize_quiz_submission` (service_role only), `cleanup_expired_sessions` (service_role only — deletes abandoned issued sessions past expiry; run on a schedule), `submit_beta_lead` (anon/authenticated — the only beta-lead write path; validates, rate-limits, dedupes).
+- Functions: `handle_new_user` (trigger), `complete_onboarding` (authenticated), `finalize_quiz_submission` (service_role only), `cleanup_expired_sessions` (service_role only — deletes abandoned issued sessions past expiry; scheduling in [DEPLOYMENT.md](DEPLOYMENT.md)), `submit_beta_lead` (**service_role only** — invoked from the validated Server Action; validates, enforces the plan allow-list, advisory-locked rate limit, and on-conflict dedup).

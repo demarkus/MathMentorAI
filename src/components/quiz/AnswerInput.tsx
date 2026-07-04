@@ -1,5 +1,7 @@
 "use client";
 
+import { MAX_ANSWER_LENGTH } from "@/lib/quiz/limits";
+
 /** Controlled answer field. Pressing Enter triggers the parent's onEnter. */
 export function AnswerInput({
   value,
@@ -25,6 +27,7 @@ export function AnswerInput({
           }
         }}
         disabled={disabled}
+        maxLength={MAX_ANSWER_LENGTH}
         placeholder="e.g. x = 5, (x+2)(x+3), 2x+1"
         aria-describedby="answer-help"
         autoComplete="off"
