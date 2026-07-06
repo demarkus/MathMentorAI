@@ -49,6 +49,12 @@ Public beta sign-ups.
 - `id`, `full_name`, `email`, `phone`, `role` (check: `learner` | `parent` | `teacher` | `tutor` | `school_admin`), `selected_plan`, `message`, `ip` (inet, anti-abuse — admin-only), `created_at`.
 - Length-capped (`beta_leads_len_ck`). **Direct insert is revoked**; all writes go through `submit_beta_lead()` (validates, rate-limits per email/IP over 10 min, dedupes per email+plan).
 
+### `parent_learner_links` *(migration `…100000`)*
+Secure parent-learner linking: a parent invites a learner by email; only an **accepted** link grants read access.
+- `id`, `parent_id` (→ `profiles`), `learner_email` (lowercase, length + format check), `learner_id` (→ `profiles`, nullable — set by the learner on response), `status` (check: `pending` | `accepted` | `rejected`, default `pending`), `created_at`.
+- Unique on `(parent_id, learner_email)` — re-inviting requires removing the old link first.
+- **Column-scoped writes**: clients may insert only `(parent_id, learner_email)` and update only `(status, learner_id)`; RLS restricts inserts to the parent themselves (role-checked) and updates to the addressed learner, who may only decide (`accepted`/`rejected`) and only bind `learner_id` to themselves.
+
 ## Migrations (apply in filename order)
 
 | Order | File | Adds |
@@ -67,6 +73,7 @@ Public beta sign-ups.
 | 12 | `20260704130052_harden_beta_leads.sql` | `beta_leads` length caps + `ip` column; revoke direct insert; `submit_beta_lead()` (validate + rate-limit + dedupe) |
 | 13 | `20260704140000_beta_lead_db_boundary.sql` | `beta_leads` plan allow-list check + unique `(email, plan)` index; `submit_beta_lead()` becomes service-role-only, enforces the plan allow-list, advisory-locked rate limit, and on-conflict dedup |
 | 14 | `20260704150000_bound_quiz_abuse.sql` | `attempts` answer-length CHECK (≤500, backstop); partial index on active issued `quiz_sessions` for the reuse/cap lookup |
+| 15 | `20260705100000_add_parent_learner_links.sql` | `parent_learner_links` (+ RLS, column-scoped grants); additive SELECT policies letting a parent with an **accepted** link read the linked learner's `learner_profiles`/`quiz_sessions`/`attempts`/`reports` |
 
 **Quiz abuse/storage bounds:** submitted answers are capped at 500 chars in the browser (`maxLength`), the Server Actions (rejected before grading/persistence), and the DB (`attempts_answer_len_ck`). A learner cannot pile up unbounded issued sessions: `startSession` reuses a still-active session of the same type/topic/grade (so a refresh or double-click resumes), and otherwise enforces a cap of `MAX_ACTIVE_ISSUED_SESSIONS` (10) simultaneously-issued sessions. Idempotent finalisation and retries are unchanged.
 
@@ -88,14 +95,15 @@ RLS is enabled on **every** table. Summary of who can do what:
 | Table | Public (anon) | Authenticated user | Admin |
 |-------|---------------|--------------------|-------|
 | `profiles` | — | select **own**; update **`full_name` only** | own only |
-| `learner_profiles` | — | select/update **own**; insert own **only if role = student** | own only |
+| `learner_profiles` | — | select/update **own**; insert own **only if role = student**; **linked parent may select** (accepted link) | own only |
 | `topics` | select | select | select |
 | `questions` | select (active, **render columns only**) | select (active, render columns only) | full via service role in admin |
-| `quiz_sessions` | — | select **own** (no client insert) | own only |
-| `attempts` | — | select **own** (no client insert) | own only |
-| `reports` | — | select **own** (no client insert) | own only |
+| `quiz_sessions` | — | select **own** (no client insert); **linked parent may select** | own only |
+| `attempts` | — | select **own** (no client insert); **linked parent may select** | own only |
+| `reports` | — | select **own** (no client insert); **linked parent may select** | own only |
 | `teacher_resources` | — | select/delete **own**; insert/update own **only if role = teacher** | **select all** |
 | `beta_leads` | — (write via `submit_beta_lead()` only) | — (write via `submit_beta_lead()` only) | **select all** |
+| `parent_learner_links` | — | parent: select/insert/delete **own** (insert role-checked, `(parent_id, learner_email)` only); learner: select/update links **addressed to their email** (`(status, learner_id)` only, self-binding enforced) | — |
 
 Notes:
 - `questions` answer keys (`answer_text`, `hint`, `solution_steps`) are **not granted** to anon/authenticated; only render columns are. `profiles.role`/`email` are **not client-updatable**.

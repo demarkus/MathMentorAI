@@ -28,21 +28,26 @@ Legend: **Route** → **Expected result**.
 ## 3. Learner
 - [ ] `/learner` → dashboard renders for the learner.
 - [ ] `/learner/topics` → seeded topics listed, grouped by grade.
-- [ ] `/learner/topics/<valid-slug>` → topic detail with active-question count.
+- [ ] `/learner/topics/<valid-slug>` → topic detail with active-question count and a "Your progress" card (mastery % + badge after practising; "You haven't practised this topic yet" before).
 - [ ] `/learner/topics/<invalid-slug>` → not-found (no crash).
-- [ ] `/learner/diagnostic` → question set loads across Grade 9/10.
-- [ ] Diagnostic submit → session, attempts, and report persist (when tables present); result page shows score, band, and next steps.
+- [ ] `/learner/diagnostic` → question set loads across Grade 9/10; question text renders `x^2`-style exponents as superscripts, simple fractions (`2/x`) stacked, and `√(…)` with an overline.
+- [ ] Quiz navigation strip (diagnostic & practice) → numbered buttons above the question; clicking jumps to that question; answered numbers show filled, unanswered outlined, current ringed.
+- [ ] Submitting with unanswered questions → "Submit anyway?" confirmation; Cancel keeps the quiz open, OK submits.
+- [ ] Diagnostic submit → session, attempts, and report persist (when tables present); result page shows score, band, next steps, **and a question-by-question review** (learner answer vs correct answer side by side, hint, worked steps).
 - [ ] `/learner/diagnostic/result` with no data → empty state with CTAs.
 - [ ] `/learner/practice` → topic list; choosing a topic loads a practice set.
 - [ ] `/learner/practice/<topicSlug>` → check/answer reveals feedback (hint, worked steps); submit reaches the result page.
-- [ ] Practice result → score, band, mistakes (question, learner answer, correct answer, worked steps), next-step CTAs.
+- [ ] Practice result → score, band, mistakes (question, learner answer, correct answer, worked steps), next-step CTAs, and a "Practise [Topic Name] next" CTA when a different topic is recommended.
 - [ ] `/learner/progress` with no attempts → empty state (does not crash).
 - [ ] `/learner/progress` after attempts → stats, strengths/focus, topic table, recent activity.
 
 ## 4. Parent (privacy-critical)
 - [ ] `/parent`, `/parent/reports`, `/parent/reports/<anyId>` → require the parent role.
-- [ ] All parent pages are **placeholder-only** — no learner data is queried or shown.
-- [ ] `/parent/reports/<learnerId>` ignores the id entirely and shows a "secure linking required" message (no data exposure).
+- [ ] `/parent/reports` → invite form sends a link request by learner email (invalid/own email rejected inline; duplicate invite gives a friendly error); pending/active links list correctly.
+- [ ] The invited learner sees the request as a banner on `/learner` and can **Accept** or **Reject**; only the addressed learner sees it.
+- [ ] Before acceptance (pending/rejected/no link), `/parent/reports/<learnerId>` shows "This report isn’t available" — **no learner data**.
+- [ ] After acceptance, `/parent/reports/<learnerId>` shows the linked learner's real stats (quizzes, attempts, average, weak topics, recommendations) — and only for that parent; a different parent account still gets the denied state.
+- [ ] **Remove** on a link (pending or active) deletes it and immediately revokes report access.
 
 ## 5. Teacher (ownership-critical)
 - [ ] `/teacher`, `/teacher/generator`, `/teacher/resources`, `/teacher/resources/<id>` → require the teacher role.
@@ -63,9 +68,10 @@ Legend: **Route** → **Expected result**.
 ## 7. Environment & security
 - [ ] No `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` anywhere (project standardises on the anon key).
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` is read only in `src/lib/supabase/server.ts`; no `"use client"` file imports the server client.
+- [ ] `ANTHROPIC_API_KEY` (optional) is read only in `src/lib/ai/` (generate-hint.ts, generate-solution.ts); with it set, a wrong practice answer gets a mistake-specific AI hint + tailored worked steps, and the diagnostic review persists AI hints (no learner identity sent); without it (or on API failure), seeded content appears. Marking is identical either way.
 - [ ] No stray `console.log` / `TODO` / `.DS_Store` committed (`.DS_Store` is gitignored).
 - [ ] Protected pages and server actions call `requireRole(...)`.
-- [ ] `beta_leads`: public **insert** only, no public read. Parent routes never read learner data.
+- [ ] `beta_leads`: public **insert** only, no public read. Parent routes read learner data **only** through the RLS-scoped session client (accepted links), never the service role.
 
 ### Database verification (SQL editor)
 ```sql
@@ -90,10 +96,9 @@ from public.beta_leads order by created_at desc limit 5;
 ```
 
 ## Known limitations (non-blocking)
-- **Parent–learner linking is unbuilt** — parent reports are placeholders by design.
-- **Diagnostic result shows no per-question review** — correct answers are never sent to the client for the diagnostic; per-question review is practice-only.
-- **Answer checking is string-based** (with limited `x = 5` ↔ `5` tolerance) — mathematically-equivalent-but-differently-written answers may be marked incorrect. No AI marking.
-- **No server-side idempotency on quiz submit** — the client now blocks *concurrent* double-submits with a synchronous ref guard (`QuizShell`), but a cross-request resubmit (back-button/retry after redirect) could still duplicate a session/attempts/report. A DB-level dedup key would need a schema change and is deferred.
+- **Parent linking has no secondary verification** — an invitation is addressed to a learner **email**; whoever controls that account can accept. Parents should double-check the address on their links list; removing the link revokes access instantly.
+- **Answer checking is deterministic, same-form only** (exact tolerances: `x = 5` ↔ `5`, multi-root order — `or` / `,` / `;` / `/`-between-assignments, factor order with matching leading coefficient, exact fraction ↔ decimal, unicode superscripts, and guarded same-form symbolic rewrites such as term order `(2+x)` ↔ `(x+2)` via mathjs, server-side only). **Cross-form equivalence is deliberately rejected** — an expanded polynomial is not accepted for a factorised answer and an unsimplified fraction is not accepted for its simplified value, so "Factorise/Simplify" questions can't be gamed by echoing the question back. No AI marking, nothing approximate.
+- **Diagnostic review reveals keys only after submission** — the per-question review (correct answers, hints, steps) lives solely in the persisted report, which exists only once grading completes; nothing ships to the client beforehand.
 - **Best-effort persistence uses the service-role client** — safe only because it is always preceded by `requireRole(...)` and server-derived ownership.
 
 ## Beta blocker list
@@ -102,6 +107,6 @@ from public.beta_leads order by created_at desc limit 5;
 ## Non-blocking follow-ups
 - [x] **Beta-form client validation** — name + email now use native `required` (with `aria-required`) for instant feedback; server validation remains authoritative. *(BetaLeadForm.tsx)*
 - [x] **Quiz-submit concurrent-double-submit guard** — `QuizShell` uses a synchronous `useRef` guard so same-tick submits can't fire `onSubmit` twice. *(QuizShell.tsx)*
-- [ ] **Cross-request quiz-submit idempotency** — deferred; needs a schema-level dedup key (out of scope for the no-schema-change rule).
-- [~] **Automated tests — expanded.** Vitest unit suite (`pnpm test`), 63 tests. Plus a gated **RLS integration suite** (`pnpm test:integration`, `tests/integration/`) that runs against a dedicated test Supabase project — see [TESTING_E2E_PLAN.md](TESTING_E2E_PLAN.md). *Remaining:* Phase 1b (attempts/reports/public-read), Playwright E2E, and CI (this manual checklist covers the browser journeys for now).
-- [ ] Build secure parent–learner linking, then populate the parent report components.
+- [x] **Cross-request quiz-submit idempotency** — the client sends a stable `submissionKey` per attempt and the atomic `finalize_quiz_submission` function dedups on it, returning the existing report on a resubmit. *(QuizShell.tsx, src/lib/quiz/session.ts)*
+- [~] **Automated tests — expanded.** Vitest unit suite (`pnpm test`), 220+ tests. Plus a gated **RLS integration suite** (`pnpm test:integration`, `tests/integration/`) that runs against a dedicated test Supabase project — see [TESTING_E2E_PLAN.md](TESTING_E2E_PLAN.md). *Remaining:* Phase 1b (attempts/reports/public-read), Playwright E2E, and CI (this manual checklist covers the browser journeys for now).
+- [x] **Secure parent–learner linking** — built (`parent_learner_links` + RLS); parent report components now show real linked-learner data. *(supabase/migrations/20260705100000, /parent/reports, /learner)*

@@ -12,7 +12,7 @@ Math Mentor AI is a **CAPS-aligned Grade 9 & 10 Algebra Booster**. The MVP delib
 
 - **Diagnose, don't guess.** A short diagnostic identifies which algebra topics need attention first.
 - **Learn through mistakes.** Practice reveals a hint first and the worked solution second, building problem-solving habits instead of answer-copying.
-- **Progress you can see.** Topic-level scores make improvement visible to learners — and, once linking ships, to parents.
+- **Progress you can see.** Topic-level scores make improvement visible to learners — and, through secure learner-approved linking, to parents.
 - **Tools for the adults too.** Teachers generate worksheets/tests/memos in seconds; admins curate the question bank.
 
 ## Target customers
@@ -20,7 +20,7 @@ Math Mentor AI is a **CAPS-aligned Grade 9 & 10 Algebra Booster**. The MVP delib
 | Segment | Who | What they want |
 |---------|-----|----------------|
 | **Learners** | Grade 9–10 students preparing for tests/exams | Confidence, focused practice, clear feedback |
-| **Parents** | Parents of Grade 9–10 learners | Visibility into how their child is doing (planned via secure linking) |
+| **Parents** | Parents of Grade 9–10 learners | Visibility into how their child is doing (via secure, learner-approved linking) |
 | **Teachers / tutors** | Maths teachers and private tutors | Fast, printable worksheets, tests, and memos |
 | **Tutor centres / small schools** | Multi-learner operations | Bulk resource generation and (future) multi-learner management |
 

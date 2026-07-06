@@ -70,6 +70,8 @@ or paste each file from `supabase/migrations/` into the SQL editor, **in filenam
 12. `20260704130052_harden_beta_leads.sql`
 13. `20260704140000_beta_lead_db_boundary.sql`
 14. `20260704150000_bound_quiz_abuse.sql`
+15. `20260705100000_add_parent_learner_links.sql`
+16. `20260705120000_drop_duplicate_topic_fk.sql`
 
 Then load CAPS content by running **`supabase/seed.sql`** — one command, no manual pre-step:
 

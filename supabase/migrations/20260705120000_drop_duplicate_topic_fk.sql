@@ -1,0 +1,14 @@
+-- Drop the original single-column questions->topics FK.
+--
+-- 20260630012144 created questions.topic_id with an inline REFERENCES
+-- (auto-named questions_topic_id_fkey). 20260704110237 added the composite
+-- questions_topic_grade_fk without removing it, leaving TWO relationships
+-- between questions and topics. PostgREST then refuses every `topics(...)`
+-- embed as ambiguous (PGRST201), which breaks quiz submission, progress
+-- loading, and the dashboards on any database built from the migrations.
+--
+-- The composite FK subsumes the old one (same topic_id reference, same
+-- ON DELETE CASCADE, plus the grade pairing), so dropping the original is
+-- pure de-duplication. After this, the migrations match schema.sql, which
+-- has only questions_topic_grade_fk.
+alter table public.questions drop constraint if exists questions_topic_id_fkey;
