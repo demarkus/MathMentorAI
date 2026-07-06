@@ -5,6 +5,8 @@ import {
   calculateTopicPerformance,
   findWeakTopics,
   findStrongTopics,
+  findPracticeFocus,
+  findCognitiveFocus,
   recommendNextTopic,
   summarizeRecentActivity,
   type ProgressAttempt,
@@ -99,6 +101,92 @@ test("recommendNextTopic: when no weak topics, recommend an unattempted topic", 
 test("recommendNextTopic: no performance -> first topic; no data -> null", () => {
   assert.equal(recommendNextTopic([], [ref({ id: "first" })])?.id, "first");
   assert.equal(recommendNextTopic([], []), null);
+});
+
+test("findPracticeFocus: detects strong-routine / weak-hard splits within a topic", () => {
+  const attempts = [
+    attempt({ topicId: "t", difficulty: "easy", isCorrect: true }),
+    attempt({ topicId: "t", difficulty: "medium", isCorrect: true }),
+    attempt({ topicId: "t", difficulty: "medium", isCorrect: true }),
+    attempt({ topicId: "t", difficulty: "hard", isCorrect: false }),
+    attempt({ topicId: "t", difficulty: "hard", isCorrect: false }),
+    attempt({ topicId: "other", difficulty: "hard", isCorrect: false }), // other topics don't leak in
+  ];
+  const focus = findPracticeFocus(attempts, "t");
+  assert.ok(focus);
+  assert.equal(focus.easierAccuracy, 100);
+  assert.equal(focus.hardAccuracy, 0);
+  assert.equal(focus.hardAttempts, 2);
+  assert.match(focus.message, /routine questions here \(100%\)/);
+  assert.match(focus.message, /problem-solving questions need work \(0%\)/);
+});
+
+test("findPracticeFocus: null without a reliable split", () => {
+  const strongEverywhere = [
+    attempt({ topicId: "t", difficulty: "easy", isCorrect: true }),
+    attempt({ topicId: "t", difficulty: "easy", isCorrect: true }),
+    attempt({ topicId: "t", difficulty: "hard", isCorrect: true }),
+    attempt({ topicId: "t", difficulty: "hard", isCorrect: true }),
+  ];
+  assert.equal(findPracticeFocus(strongEverywhere, "t"), null); // hard is fine
+
+  const weakEverywhere = [
+    attempt({ topicId: "t", difficulty: "easy", isCorrect: false }),
+    attempt({ topicId: "t", difficulty: "easy", isCorrect: false }),
+    attempt({ topicId: "t", difficulty: "hard", isCorrect: false }),
+    attempt({ topicId: "t", difficulty: "hard", isCorrect: false }),
+  ];
+  assert.equal(findPracticeFocus(weakEverywhere, "t"), null); // routine weak too — broad practice is right
+
+  const tooFewHard = [
+    attempt({ topicId: "t", difficulty: "easy", isCorrect: true }),
+    attempt({ topicId: "t", difficulty: "easy", isCorrect: true }),
+    attempt({ topicId: "t", difficulty: "hard", isCorrect: false }), // only 1 hard attempt
+  ];
+  assert.equal(findPracticeFocus(tooFewHard, "t"), null);
+
+  const noDifficultyData = [
+    attempt({ topicId: "t", isCorrect: true }),
+    attempt({ topicId: "t", isCorrect: false }),
+  ];
+  assert.equal(findPracticeFocus(noDifficultyData, "t"), null); // legacy rows without difficulty
+});
+
+test("findCognitiveFocus: detects routine-mastered / applied-failing splits", () => {
+  const attempts = [
+    attempt({ topicId: "t", cognitiveLevel: "routine procedure", isCorrect: true }),
+    attempt({ topicId: "t", cognitiveLevel: "routine procedure", isCorrect: true }),
+    attempt({ topicId: "t", cognitiveLevel: "problem solving", isCorrect: false }),
+    attempt({ topicId: "t", cognitiveLevel: "complex procedure", isCorrect: false }),
+  ];
+  const focus = findCognitiveFocus(attempts, "t");
+  assert.ok(focus);
+  assert.equal(focus.basis, "cognitive");
+  assert.equal(focus.easierAccuracy, 100);
+  assert.equal(focus.hardAccuracy, 0);
+  assert.match(focus.message, /applied\s+problem-solving questions need work/);
+});
+
+test("findCognitiveFocus: null with untagged data (everything the default level)", () => {
+  // Today's bank: every question is 'routine procedure' — one bucket, no split.
+  const untagged = [
+    attempt({ topicId: "t", cognitiveLevel: "routine procedure", isCorrect: true }),
+    attempt({ topicId: "t", cognitiveLevel: "routine procedure", isCorrect: false }),
+    attempt({ topicId: "t", cognitiveLevel: "routine procedure", isCorrect: false }),
+  ];
+  assert.equal(findCognitiveFocus(untagged, "t"), null);
+  // And rows with no cognitive data at all contribute nothing.
+  assert.equal(findCognitiveFocus([attempt({ topicId: "t" }), attempt({ topicId: "t" })], "t"), null);
+});
+
+test("findPracticeFocus: reports its basis for display code that branches on it", () => {
+  const attempts = [
+    attempt({ topicId: "t", difficulty: "easy", isCorrect: true }),
+    attempt({ topicId: "t", difficulty: "easy", isCorrect: true }),
+    attempt({ topicId: "t", difficulty: "hard", isCorrect: false }),
+    attempt({ topicId: "t", difficulty: "hard", isCorrect: false }),
+  ];
+  assert.equal(findPracticeFocus(attempts, "t")?.basis, "difficulty");
 });
 
 test("summarizeRecentActivity: newest first, capped at limit", () => {

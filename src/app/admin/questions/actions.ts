@@ -7,11 +7,9 @@ import type { QuestionInput, QuestionActionResult } from "@/components/admin/Que
 
 const QUESTION_GRADES = [9, 10] as const;
 const QUESTION_DIFFICULTIES = ["easy", "medium", "hard"] as const;
+const QUESTION_COGNITIVE_LEVELS = ["routine procedure", "complex procedure", "problem solving"] as const;
 
-/**
- * Validates untrusted form input into the exact column shape questions expects.
- * `cognitive_level` is intentionally omitted so the schema default applies.
- */
+/** Validates untrusted form input into the exact column shape questions expects. */
 function validate(input: QuestionInput): { values?: Record<string, unknown>; error?: string } {
   const topic_id = String(input?.topic_id ?? "").trim();
   if (!topic_id) return { error: "Please choose a topic." };
@@ -35,6 +33,12 @@ function validate(input: QuestionInput): { values?: Record<string, unknown>; err
     return { error: "Please choose a valid difficulty." };
   }
 
+  // Older callers may omit it — the schema default is "routine procedure".
+  const cognitive_level = String(input?.cognitive_level ?? "routine procedure");
+  if (!QUESTION_COGNITIVE_LEVELS.includes(cognitive_level as (typeof QUESTION_COGNITIVE_LEVELS)[number])) {
+    return { error: "Please choose a valid cognitive level." };
+  }
+
   const marks = Math.round(Number(input?.marks));
   if (!Number.isFinite(marks) || marks < 1) return { error: "Marks must be a whole number of at least 1." };
 
@@ -45,7 +49,10 @@ function validate(input: QuestionInput): { values?: Record<string, unknown>; err
   const is_active = Boolean(input?.is_active);
 
   return {
-    values: { topic_id, grade, question_text, answer_text, hint, solution_steps, difficulty, marks, is_active },
+    values: {
+      topic_id, grade, question_text, answer_text, hint, solution_steps,
+      difficulty, cognitive_level, marks, is_active,
+    },
   };
 }
 

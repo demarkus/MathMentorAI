@@ -12,6 +12,12 @@ export type ProgressAttempt = {
   topicSlug: string;
   grade: number;
   createdAt: string;
+  // Question difficulty ("easy" | "medium" | "hard"). Optional: attempts loaded
+  // before this field was captured simply don't contribute to focus analysis.
+  difficulty?: string;
+  // CAPS cognitive level ("routine procedure" | "complex procedure" |
+  // "problem solving"). Optional, same rule as difficulty.
+  cognitiveLevel?: string;
 };
 
 export type ProgressSession = {
@@ -126,6 +132,102 @@ export function recommendNextTopic(performance: TopicPerformance[], topics: Topi
   }
 
   return topics[0] ?? null;
+}
+
+// Minimum attempts on each side before a within-topic split is trusted — one
+// lucky/unlucky question must not steer the recommendation.
+export const FOCUS_MIN_ATTEMPTS = 2;
+
+export type PracticeFocus = {
+  topicId: string;
+  // Which question property produced the split.
+  basis: "cognitive" | "difficulty";
+  hardAccuracy: number;
+  hardAttempts: number;
+  easierAccuracy: number;
+  easierAttempts: number;
+  message: string;
+};
+
+/**
+ * Shared two-bucket split: reliable only when both sides have enough attempts,
+ * the strong side clears STRONG_TOPIC_THRESHOLD, and the weak side falls below
+ * WEAK_TOPIC_THRESHOLD. `classify` maps an attempt to its bucket (or null to
+ * ignore it — e.g. legacy rows without the property).
+ */
+function splitFocus(
+  attempts: ProgressAttempt[],
+  topicId: string,
+  classify: (attempt: ProgressAttempt) => "easier" | "hard" | null,
+): { hardAccuracy: number; hardAttempts: number; easierAccuracy: number; easierAttempts: number } | null {
+  let hardCorrect = 0;
+  let hardAttempts = 0;
+  let easierCorrect = 0;
+  let easierAttempts = 0;
+
+  for (const attempt of attempts) {
+    if (attempt.topicId !== topicId) continue;
+    const bucket = classify(attempt);
+    if (bucket === "hard") {
+      hardAttempts += 1;
+      if (attempt.isCorrect) hardCorrect += 1;
+    } else if (bucket === "easier") {
+      easierAttempts += 1;
+      if (attempt.isCorrect) easierCorrect += 1;
+    }
+  }
+
+  if (hardAttempts < FOCUS_MIN_ATTEMPTS || easierAttempts < FOCUS_MIN_ATTEMPTS) return null;
+  const hardAccuracy = Math.round((hardCorrect / hardAttempts) * 100);
+  const easierAccuracy = Math.round((easierCorrect / easierAttempts) * 100);
+  if (hardAccuracy >= WEAK_TOPIC_THRESHOLD || easierAccuracy < STRONG_TOPIC_THRESHOLD) return null;
+  return { hardAccuracy, hardAttempts, easierAccuracy, easierAttempts };
+}
+
+/**
+ * Detects a difficulty split inside one topic: the learner handles routine
+ * (easy/medium) questions well but struggles on hard ones. Returns null when
+ * there is no reliable split. Purely derived from existing attempt rows.
+ */
+export function findPracticeFocus(attempts: ProgressAttempt[], topicId: string): PracticeFocus | null {
+  const split = splitFocus(attempts, topicId, (attempt) => {
+    if (attempt.difficulty === "hard") return "hard";
+    if (attempt.difficulty === "easy" || attempt.difficulty === "medium") return "easier";
+    return null;
+  });
+  if (!split) return null;
+  return {
+    topicId,
+    basis: "difficulty",
+    ...split,
+    message:
+      `You're solid on routine questions here (${split.easierAccuracy}%), but harder ` +
+      `problem-solving questions need work (${split.hardAccuracy}%) — focus your practice on those.`,
+  };
+}
+
+/**
+ * Detects a CAPS cognitive-level split inside one topic: routine procedures
+ * mastered, but applied questions (complex procedure / problem solving)
+ * failing. Only meaningful once the question bank is tagged — with the default
+ * everywhere, every attempt lands in one bucket and this returns null.
+ */
+export function findCognitiveFocus(attempts: ProgressAttempt[], topicId: string): PracticeFocus | null {
+  const split = splitFocus(attempts, topicId, (attempt) => {
+    if (!attempt.cognitiveLevel) return null;
+    if (attempt.cognitiveLevel === "routine procedure") return "easier";
+    if (attempt.cognitiveLevel === "complex procedure" || attempt.cognitiveLevel === "problem solving") return "hard";
+    return null;
+  });
+  if (!split) return null;
+  return {
+    topicId,
+    basis: "cognitive",
+    ...split,
+    message:
+      `You've mastered the routine mechanics here (${split.easierAccuracy}%), but applied ` +
+      `problem-solving questions need work (${split.hardAccuracy}%) — practise the word problems in this topic.`,
+  };
 }
 
 /** Most recent attempts first, capped at `limit`. */

@@ -8,6 +8,10 @@ import { fieldClassName } from "@/components/ui/field";
 export const QUESTION_GRADES = [9, 10] as const;
 export const QUESTION_DIFFICULTIES = ["easy", "medium", "hard"] as const;
 export type QuestionDifficulty = (typeof QUESTION_DIFFICULTIES)[number];
+// CAPS cognitive levels (subset used for algebra items). Distinct from
+// difficulty: "how hard" vs "what kind of thinking".
+export const QUESTION_COGNITIVE_LEVELS = ["routine procedure", "complex procedure", "problem solving"] as const;
+export type QuestionCognitiveLevel = (typeof QUESTION_COGNITIVE_LEVELS)[number];
 
 /** The editable shape of a question, shared by the create and edit actions. */
 export type QuestionInput = {
@@ -18,6 +22,7 @@ export type QuestionInput = {
   hint: string;
   solution_steps: string[];
   difficulty: QuestionDifficulty;
+  cognitive_level: QuestionCognitiveLevel;
   marks: number;
   is_active: boolean;
 };
@@ -34,6 +39,7 @@ const EMPTY: QuestionInput = {
   hint: "",
   solution_steps: [],
   difficulty: "medium",
+  cognitive_level: "routine procedure",
   marks: 1,
   is_active: true,
 };
@@ -59,6 +65,9 @@ export function QuestionForm({
   const [hint, setHint] = useState(start.hint);
   const [stepsText, setStepsText] = useState(start.solution_steps.join("\n"));
   const [difficulty, setDifficulty] = useState<QuestionDifficulty>(start.difficulty);
+  const [cognitiveLevel, setCognitiveLevel] = useState<QuestionCognitiveLevel>(
+    start.cognitive_level ?? "routine procedure",
+  );
   const [marks, setMarks] = useState<number>(start.marks);
   const [isActive, setIsActive] = useState<boolean>(start.is_active);
 
@@ -85,6 +94,7 @@ export function QuestionForm({
       hint: hint.trim(),
       solution_steps,
       difficulty,
+      cognitive_level: cognitiveLevel,
       marks,
       is_active: isActive,
     };
@@ -130,6 +140,21 @@ export function QuestionForm({
             className={inputClass}
           >
             {QUESTION_DIFFICULTIES.map((value) => (
+              <option key={value} value={value}>
+                {value[0].toUpperCase() + value.slice(1)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block text-sm font-medium">
+          Cognitive level
+          <select
+            value={cognitiveLevel}
+            onChange={(event) => setCognitiveLevel(event.target.value as QuestionCognitiveLevel)}
+            className={inputClass}
+          >
+            {QUESTION_COGNITIVE_LEVELS.map((value) => (
               <option key={value} value={value}>
                 {value[0].toUpperCase() + value.slice(1)}
               </option>
