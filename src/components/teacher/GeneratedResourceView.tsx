@@ -1,6 +1,7 @@
 "use client";
 
 import { resourceTypeLabel, type WorksheetContent } from "@/lib/math/teacher-resources";
+import { formatQuestion } from "@/lib/math/format-question";
 
 /**
  * Printable rendering of a generated resource. Chrome (the Print button) is
@@ -44,14 +45,14 @@ export function GeneratedResourceView({ content }: { content: WorksheetContent }
               <li key={question.number} className="border-b border-line pb-5 last:border-0">
                 <div className="flex items-start justify-between gap-3">
                   <p className="font-medium">
-                    <span className="font-mono text-brand">{question.number}.</span> {question.questionText}
+                    <span className="font-mono text-brand">{question.number}.</span> {formatQuestion(question.questionText)}
                   </p>
                   <span className="shrink-0 text-xs text-muted">
                     [{question.marks} {question.marks === 1 ? "mark" : "marks"}]
                   </span>
                 </div>
                 {showHintWithQuestion && question.hint && (
-                  <p className="mt-2 text-sm text-muted">Hint: {question.hint}</p>
+                  <p className="mt-2 text-sm text-muted">Hint: {formatQuestion(question.hint)}</p>
                 )}
               </li>
             ))}
@@ -66,16 +67,16 @@ export function GeneratedResourceView({ content }: { content: WorksheetContent }
             <li key={question.number} className="border-b border-line pb-4 last:border-0">
               <p className="font-medium">
                 <span className="font-mono text-brand">{question.number}.</span>{" "}
-                {isMemo ? question.questionText : null}
+                {isMemo ? formatQuestion(question.questionText) : null}
               </p>
               <p className={isMemo ? "mt-1" : ""}>
                 <span className="text-sm text-muted">Answer: </span>
-                <span className="font-mono font-semibold">{question.answerText}</span>
+                <span className="font-mono font-semibold">{formatQuestion(question.answerText)}</span>
               </p>
               {question.explanation.length > 0 && (
                 <ol className="mt-2 list-inside list-decimal space-y-1 text-sm text-muted">
                   {question.explanation.map((step, stepIndex) => (
-                    <li key={stepIndex}>{step}</li>
+                    <li key={stepIndex}>{formatQuestion(step)}</li>
                   ))}
                 </ol>
               )}

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
+import { formatQuestion } from "@/lib/math/format-question";
 
 const DIFFICULTY_TONE: Record<string, BadgeTone> = {
   easy: "success",
@@ -40,7 +41,7 @@ export function QuestionCard({
       </div>
       <p className="mt-6 text-sm text-muted">Solve and enter your answer.</p>
       <h2 className="mt-2 break-words font-mono text-3xl font-semibold leading-snug md:text-4xl">
-        {questionText}
+        {formatQuestion(questionText)}
       </h2>
       {expectedAnswerNote && <p className="mt-3 text-sm text-muted">{expectedAnswerNote}</p>}
       {children}

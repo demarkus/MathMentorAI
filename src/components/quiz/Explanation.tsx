@@ -1,10 +1,13 @@
+import { formatQuestion } from "@/lib/math/format-question";
+
 /**
  * Safe, presentational rendering of worked solutions and hints.
  *
  * Steps are stored as a JSON array of strings (`solution_steps`). We render each
  * as an ordered-list item. If a single step contains line breaks (plain-text
  * style), we split it into readable paragraphs. Nothing is ever rendered with
- * dangerouslySetInnerHTML — all content is treated as plain text.
+ * dangerouslySetInnerHTML — all content is treated as plain text; the only
+ * transform is `formatQuestion`, which turns caret exponents into <sup> nodes.
  */
 
 /** Worked steps, or a clear fallback when none are available. */
@@ -21,7 +24,7 @@ export function WorkedSteps({ steps, className = "" }: { steps: string[]; classN
     return (
       <div className={`space-y-2 text-sm leading-6 ${className}`}>
         {paragraphs.map((paragraph, index) => (
-          <p key={index}>{paragraph}</p>
+          <p key={index}>{formatQuestion(paragraph)}</p>
         ))}
       </div>
     );
@@ -30,7 +33,7 @@ export function WorkedSteps({ steps, className = "" }: { steps: string[]; classN
   return (
     <ol className={`list-inside list-decimal space-y-1 text-sm leading-6 ${className}`}>
       {cleaned.map((step, index) => (
-        <li key={index}>{step}</li>
+        <li key={index}>{formatQuestion(step)}</li>
       ))}
     </ol>
   );
@@ -42,7 +45,7 @@ export function HintBox({ hint, className = "" }: { hint: string; className?: st
   return (
     <div className={`rounded-xl border border-line bg-accent/10 p-3 text-sm ${className}`}>
       <span className="font-semibold">Hint: </span>
-      {hint.trim()}
+      {formatQuestion(hint.trim())}
     </div>
   );
 }
