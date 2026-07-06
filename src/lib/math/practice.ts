@@ -6,6 +6,9 @@ export const PRACTICE_MAX_QUESTIONS = 10;
 // Upper bound on candidates scanned before selection, so a topic with many
 // questions still yields a varied set without an unbounded read.
 export const PRACTICE_CANDIDATE_LIMIT = 60;
+// How many of the learner's most recent attempts count as "recently seen"
+// when preferring unseen questions (~3 full practice runs).
+export const PRACTICE_RECENCY_WINDOW = 30;
 
 export type PracticeQuestion = {
   id: string;

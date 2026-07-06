@@ -36,6 +36,9 @@ Related code: `src/components/quiz/`, `src/lib/math/`, `src/app/learner/`.
 ## Practice — question display
 - [ ] `/learner/practice` lists topics grouped by grade.
 - [ ] Choosing a topic (or a specific grade when offered in both) opens a practice set.
+- [ ] Consecutive runs of the same topic rotate through unseen questions first —
+      recently-attempted ones reappear only when the topic bank is too small to
+      fill a set without them.
 - [ ] Question presentation matches the diagnostic (badges, wrapping, notation).
 - [ ] The expected-answer note reflects the answer form (numeric / expression / equation).
 
