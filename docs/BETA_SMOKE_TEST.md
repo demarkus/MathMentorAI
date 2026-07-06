@@ -77,7 +77,7 @@ Legend: **Route** → **Expected result**.
 ```sql
 -- Seed counts (post clear-baseline seed)
 select count(*) as topics from public.topics;                 -- expect 14
-select grade, count(*) from public.questions group by grade;  -- expect 9 -> 54, 10 -> 54
+select grade, count(*) from public.questions group by grade;  -- expect 9 -> 112, 10 -> 112
 
 -- No self-assigned admins from public sign-up (expect 0 unless provisioned on purpose)
 select count(*) as admins from public.profiles where role = 'admin';

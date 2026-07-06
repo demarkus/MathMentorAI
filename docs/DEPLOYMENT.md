@@ -76,10 +76,10 @@ or paste each file from `supabase/migrations/` into the SQL editor, **in filenam
 Then load CAPS content by running **`supabase/seed.sql`** — one command, no manual pre-step:
 
 ```
-supabase/seed.sql   -- clean 14 topics + 108 questions
+supabase/seed.sql   -- clean 14 topics + 224 questions (16 per topic)
 ```
 
-`seed.sql` reconciles the migration baseline by an explicit **allow-list**, not by deleting everything unattempted. It removes only rows that exactly match the known baseline fingerprint (grade + slug + question_text + answer_text + hint) and have no attempts, then upserts the canonical set; the empty baseline `exam-revision` topic is dropped only once it is empty. This means **custom admin topics/questions are never deleted** (they never match the fingerprint), a baseline row **edited** in any of those fields is preserved, and **any attempted row (and its topic) is preserved**. On a fresh database you get a clean 14/108 with no duplicates and no stray `exam-revision` topic. It is safe to re-run (identical-text baseline rows equal the canonical content and are left untouched, so there is no delete/re-insert churn).
+`seed.sql` reconciles the migration baseline by an explicit **allow-list**, not by deleting everything unattempted. It removes only rows that exactly match the known baseline fingerprint (grade + slug + question_text + answer_text + hint) and have no attempts, then upserts the canonical set; the empty baseline `exam-revision` topic is dropped only once it is empty. This means **custom admin topics/questions are never deleted** (they never match the fingerprint), a baseline row **edited** in any of those fields is preserved, and **any attempted row (and its topic) is preserved**. On a fresh database you get a clean 14/224 with no duplicates and no stray `exam-revision` topic. It is safe to re-run (identical-text baseline rows equal the canonical content and are left untouched, so there is no delete/re-insert churn).
 
 > `supabase/schema.sql` is a **reference copy only** (schema-only: tables, indexes, RLS, policies, and functions — no seed) and is intentionally not a setup path. Always set up a real database from the **migrations**, never from `schema.sql`.
 
@@ -105,8 +105,8 @@ where table_schema='public' and table_name='attempts' and column_name='quiz_sess
 
 -- Clean seed counts
 select count(*) as topics from public.topics;                 -- expect 14
-select grade, count(*) from public.questions group by grade;  -- expect 9 -> 54, 10 -> 54
-select count(*) as questions from public.questions;           -- expect 108
+select grade, count(*) from public.questions group by grade;  -- expect 9 -> 112, 10 -> 112
+select count(*) as questions from public.questions;           -- expect 224
 
 -- No duplicate questions (must return 0 rows — confirms the baseline was cleared)
 select topic_id, question_text, count(*)

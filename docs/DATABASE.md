@@ -84,7 +84,7 @@ A question's `grade` must equal its topic's `grade`: migration 9 adds a unique k
 ## Seed data (`supabase/seed.sql`)
 
 - **14 topics** — 7 per grade: Factorisation, Linear equations, Algebraic fractions, Simultaneous equations, Exponents, Functions basics, Number patterns.
-- **108 questions** — 54 Grade 9 + 54 Grade 10, spread across those topics, with `answer_text`, `hint`, and `solution_steps`.
+- **224 questions** — 112 Grade 9 + 112 Grade 10 (16 per topic, CAPS cognitive levels on the expansion set), spread across those topics, with `answer_text`, `hint`, and `solution_steps`.
 - **Safe to re-run** — topics upsert on `(grade, slug)`; questions insert only when an identical `question_text` isn't already present for that topic (topics resolved by `grade + slug` join, no hardcoded UUIDs).
 - **Non-destructive reconciliation** — the migration baseline is reconciled by an explicit allow-list of the known baseline fingerprint (grade + slug + question_text + answer_text + hint). Only unattempted, unedited baseline rows are removed and the empty baseline `exam-revision` topic is dropped; **custom topics/questions, edited baseline rows, and any attempted rows are always preserved**.
 

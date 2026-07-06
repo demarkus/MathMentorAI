@@ -39,6 +39,7 @@ const SCHEMA_SQL = `
     hint text,
     solution_steps jsonb not null default '[]'::jsonb,
     difficulty public.question_difficulty not null default 'easy',
+    cognitive_level text not null default 'routine procedure',
     marks integer not null default 1,
     is_active boolean not null default true
   );

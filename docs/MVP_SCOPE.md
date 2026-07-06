@@ -59,7 +59,7 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 | Role protection on all protected routes | ✅ |
 | RLS enabled + owner-scoped on all sensitive tables | ✅ |
 | Learner core loop (diagnostic → practice → progress) | ✅ |
-| CAPS-tagged seed content (14 topics, 108 questions)¹ | ✅ |
+| CAPS-tagged seed content (14 topics, 224 questions)¹ | ✅ |
 | Teacher generator + print | ✅ |
 | Admin question management | ✅ |
 | Lead capture for pricing/beta | ✅ |
