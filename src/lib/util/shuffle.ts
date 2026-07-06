@@ -84,3 +84,23 @@ export function selectBalancedByDifficulty<T extends { difficulty: string }>(
   }
   return out;
 }
+
+/**
+ * Like {@link selectBalancedByDifficulty}, but questions the learner attempted
+ * recently are only used to FILL a set that fresh questions can't complete.
+ * With a bank larger than `max`, consecutive runs therefore rotate through the
+ * unseen questions first instead of re-drawing the same ones; with a small
+ * bank it degrades gracefully to the plain balanced selection. Pure.
+ */
+export function selectBalancedPreferUnseen<T extends { id: string; difficulty: string }>(
+  items: T[],
+  recentIds: ReadonlySet<string>,
+  max: number,
+  rng: () => number,
+): T[] {
+  const fresh = items.filter((item) => !recentIds.has(item.id));
+  const seen = items.filter((item) => recentIds.has(item.id));
+  const picked = selectBalancedByDifficulty(fresh, max, rng);
+  if (picked.length >= max || seen.length === 0) return picked;
+  return [...picked, ...selectBalancedByDifficulty(seen, max - picked.length, rng)];
+}

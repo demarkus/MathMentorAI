@@ -3,11 +3,13 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { loadLearnerProgress } from "@/lib/progress/load-progress";
 import { loadLearnerContext } from "@/lib/learner/profile";
+import { respondToInvitation } from "@/app/learner/actions";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { DashboardCard } from "@/components/dashboard/DashboardCard";
 import { DashboardActionCard } from "@/components/dashboard/DashboardActionCard";
 import { ProgressStatCard } from "@/components/dashboard/ProgressStatCard";
+import { InvitationBanner, type PendingInvitation } from "@/components/learner/InvitationBanner";
 
 export default async function LearnerPage() {
   const user = await requireRole("learner");
@@ -18,6 +20,19 @@ export default async function LearnerPage() {
   const progress = learner ? await loadLearnerProgress(supabase, learner.id, learner.grade) : null;
   const hasProgress = Boolean(progress?.hasData);
 
+  // Pending parent link requests addressed to this learner's email. RLS scopes
+  // the rows (a learner only ever sees invitations for their own profile
+  // email), so no explicit filter on the email is needed here.
+  const { data: inviteRows } = await supabase
+    .from("parent_learner_links")
+    .select("id, created_at")
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+  const invitations: PendingInvitation[] = ((inviteRows ?? []) as { id: string; created_at: string }[]).map((row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+  }));
+
   return (
     <div className="space-y-10">
       <DashboardHeader
@@ -25,6 +40,8 @@ export default async function LearnerPage() {
         title={`Good to see you, ${firstName}.`}
         subtitle="A little focused practice today goes a long way."
       />
+
+      <InvitationBanner invitations={invitations} respondAction={respondToInvitation} />
 
       <section>
         <h2 className="text-lg font-semibold">Jump back in</h2>

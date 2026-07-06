@@ -5,7 +5,7 @@ export type RecommendationItem = {
 
 /**
  * Lists recommended practice for a linked learner. With no items it renders a
- * safe empty state (used while parent-learner linking is unavailable).
+ * safe empty state (no linked learner yet, or nothing to recommend).
  */
 export function RecommendationList({
   items = [],

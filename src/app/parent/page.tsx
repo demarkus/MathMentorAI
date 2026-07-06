@@ -19,16 +19,11 @@ export default async function ParentPage() {
           subtitle="Follow your learner’s progress and see which topics need attention."
         />
 
-        <p className="rounded-2xl border border-accent/40 bg-accent/10 p-4 text-sm leading-6 text-brand-dark">
-          Parent–learner linking isn’t active yet. Once it’s available you’ll be able to connect your child’s account and
-          see their progress here.
-        </p>
-
         <DashboardGrid cols={2}>
-          <DashboardCard title="Linked learner" badge="Not linked">Connect a learner account to follow their progress. Account linking is coming soon.</DashboardCard>
-          <DashboardActionCard href="/parent/reports" icon="📊" title="Weekly progress report" description="Topic-by-topic accuracy and readiness for each linked learner." cta="View reports" />
-          <DashboardCard title="Weak topics" badge="Coming soon">The topics your learner struggles with most will surface here once linking is active.</DashboardCard>
-          <DashboardCard title="Recommended practice" badge="Coming soon">Suggested practice sets tailored to your learner’s gaps.</DashboardCard>
+          <DashboardActionCard href="/parent/reports" icon="🔗" title="Connect a learner" description="Send a link request to your child’s learner email — they confirm it from their dashboard." cta="Manage learner links" />
+          <DashboardActionCard href="/parent/reports" icon="📊" title="Progress reports" description="Topic-by-topic accuracy and readiness for each linked learner." cta="View reports" />
+          <DashboardCard title="Weak topics">Each linked learner’s report highlights the topics they struggle with most.</DashboardCard>
+          <DashboardCard title="Recommended practice">Reports include suggested practice tailored to your learner’s gaps.</DashboardCard>
         </DashboardGrid>
       </main>
     </>

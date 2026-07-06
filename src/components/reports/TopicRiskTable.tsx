@@ -6,7 +6,7 @@ export type TopicRiskRow = {
 
 /**
  * Displays at-risk topics for a linked learner. With no rows it renders a safe
- * empty state (used while parent-learner linking is unavailable).
+ * empty state (no linked learner yet, or no weak topics to show).
  */
 export function TopicRiskTable({
   rows = [],

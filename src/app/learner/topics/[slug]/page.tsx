@@ -2,12 +2,50 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
+import { loadLearnerContext } from "@/lib/learner/profile";
+import { loadLearnerProgress } from "@/lib/progress/load-progress";
+import {
+  WEAK_TOPIC_THRESHOLD,
+  STRONG_TOPIC_THRESHOLD,
+  type TopicPerformance,
+} from "@/lib/math/progress";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { DashboardCard } from "@/components/dashboard/DashboardCard";
 import { TopicCard, type CatalogueTopic } from "@/components/dashboard/TopicCard";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
 
 const VALID_GRADES = [9, 10];
+
+/** Maps topic accuracy to a mastery pill, using the shared weak/strong thresholds. */
+function masteryBadge(percentage: number): { label: string; tone: BadgeTone } {
+  if (percentage >= STRONG_TOPIC_THRESHOLD) return { label: "Strong", tone: "success" };
+  if (percentage >= WEAK_TOPIC_THRESHOLD) return { label: "Developing", tone: "brand" };
+  return { label: "Needs practice", tone: "warning" };
+}
+
+/** The learner's mastery for this topic, rendered inside the progress card. */
+function TopicMastery({ performance }: { performance: TopicPerformance | undefined }) {
+  if (!performance || performance.attempts === 0) {
+    return (
+      <>
+        You haven’t practised this topic yet. Start a practice run and your accuracy and mastery will appear here.
+      </>
+    );
+  }
+  const badge = masteryBadge(performance.percentage);
+  return (
+    <div>
+      <div className="flex items-center gap-3">
+        <p className="font-mono text-3xl font-semibold text-foreground">{performance.percentage}%</p>
+        <Badge tone={badge.tone}>{badge.label}</Badge>
+      </div>
+      <p className="mt-1">
+        {performance.correct} of {performance.attempts} recent question{performance.attempts === 1 ? "" : "s"} correct.
+      </p>
+    </div>
+  );
+}
 
 function BackLink() {
   return (
@@ -24,7 +62,7 @@ export default async function TopicDetailPage({
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ grade?: string }>;
 }) {
-  await requireRole("learner");
+  const user = await requireRole("learner");
   const { slug } = await params;
   const { grade } = await searchParams;
 
@@ -84,6 +122,16 @@ export default async function TopicDetailPage({
   const questionCount = count ?? 0;
   const practiceHref = `/learner/practice/${topic.slug}?grade=${topic.grade}`;
 
+  // This topic's slice of the learner's existing progress data (bounded recent
+  // window, same numbers as /learner/progress). No learner profile yet (or a
+  // load error) simply renders the not-practised-yet state.
+  const learner = await loadLearnerContext(supabase, user.id);
+  const progress = learner ? await loadLearnerProgress(supabase, learner.id, topic.grade) : null;
+  const performance =
+    progress && !progress.error
+      ? progress.topicPerformance.find((entry) => entry.topicId === topic.id)
+      : undefined;
+
   return (
     <div className="space-y-8">
       <BackLink />
@@ -109,8 +157,8 @@ export default async function TopicDetailPage({
             ? "No questions are available for the diagnostic here yet."
             : "Practising here sharpens your diagnostic accuracy for this topic."}
         </DashboardCard>
-        <DashboardCard title="Your progress" badge="Coming soon">
-          Your mastery and recent attempts for this topic will appear here.
+        <DashboardCard title="Your progress">
+          <TopicMastery performance={performance} />
         </DashboardCard>
       </DashboardGrid>
     </div>

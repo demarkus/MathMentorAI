@@ -6,9 +6,11 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import {
   QuestionForm,
+  QUESTION_COGNITIVE_LEVELS,
   type FormTopic,
   type QuestionInput,
   type QuestionDifficulty,
+  type QuestionCognitiveLevel,
 } from "@/components/admin/QuestionForm";
 import { updateQuestion } from "../../actions";
 
@@ -21,6 +23,7 @@ type QuestionRow = {
   hint: string;
   solution_steps: unknown;
   difficulty: string;
+  cognitive_level: string;
   marks: number;
   is_active: boolean;
 };
@@ -55,7 +58,7 @@ export default async function EditQuestionPage({ params }: { params: Promise<{ i
       .order("display_order", { ascending: true }),
     admin
       .from("questions")
-      .select("id, topic_id, grade, question_text, answer_text, hint, solution_steps, difficulty, marks, is_active")
+      .select("id, topic_id, grade, question_text, answer_text, hint, solution_steps, difficulty, cognitive_level, marks, is_active")
       .eq("id", id)
       .maybeSingle(),
   ]);
@@ -72,6 +75,9 @@ export default async function EditQuestionPage({ params }: { params: Promise<{ i
     hint: question.hint,
     solution_steps: toSteps(question.solution_steps),
     difficulty: question.difficulty as QuestionDifficulty,
+    cognitive_level: (QUESTION_COGNITIVE_LEVELS as readonly string[]).includes(question.cognitive_level)
+      ? (question.cognitive_level as QuestionCognitiveLevel)
+      : "routine procedure",
     marks: question.marks,
     is_active: question.is_active,
   };

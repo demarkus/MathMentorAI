@@ -8,11 +8,14 @@ import {
   explanationFor,
   PRACTICE_MAX_QUESTIONS,
   PRACTICE_CANDIDATE_LIMIT,
+  PRACTICE_RECENCY_WINDOW,
   type PracticeQuestion,
 } from "@/lib/math/practice";
 import { isAnswerCorrect } from "@/lib/math/check-answer";
+import { generateAiHint } from "@/lib/ai/generate-hint";
+import { generateAiSolutionSteps } from "@/lib/ai/generate-solution";
 import { answersWithinLimit, isAnswerWithinLimit } from "@/lib/quiz/limits";
-import { selectBalancedByDifficulty, cryptoRng } from "@/lib/util/shuffle";
+import { selectBalancedPreferUnseen, cryptoRng } from "@/lib/util/shuffle";
 import { loadSession, startSession, finalizeSession, submittedMatchesIssued, isSessionExpired } from "@/lib/quiz/session";
 import type { QuizAnswer, QuizCheckResult } from "@/components/quiz/QuizShell";
 
@@ -73,17 +76,31 @@ export async function startPractice(
   const supabase = await createClient();
   // Render/meta columns only (id + difficulty) — never answer keys. A bounded
   // candidate pool is fetched, then a varied, difficulty-balanced subset is
-  // selected server-side so runs aren't identical.
-  const { data, error } = await supabase
-    .from("questions")
-    .select("id, difficulty")
-    .eq("topic_id", topicId)
-    .eq("is_active", true)
-    .limit(PRACTICE_CANDIDATE_LIMIT);
+  // selected server-side so runs aren't identical. Recently-attempted
+  // questions (RLS-scoped read of the learner's own attempts) are used only
+  // to fill what fresh questions can't cover, so runs rotate through the
+  // bank; a read failure just degrades to the plain balanced selection.
+  const [{ data, error }, recentResult] = await Promise.all([
+    supabase
+      .from("questions")
+      .select("id, difficulty")
+      .eq("topic_id", topicId)
+      .eq("is_active", true)
+      .limit(PRACTICE_CANDIDATE_LIMIT),
+    supabase
+      .from("attempts")
+      .select("question_id")
+      .eq("learner_id", id)
+      .order("created_at", { ascending: false })
+      .limit(PRACTICE_RECENCY_WINDOW),
+  ]);
   if (error) return { error: "We couldn’t load the questions. Please try again." };
 
+  const recentIds = new Set(
+    ((recentResult.error ? [] : recentResult.data ?? []) as { question_id: string }[]).map((row) => row.question_id),
+  );
   const candidates = (data ?? []) as { id: string; difficulty: string }[];
-  const selected = selectBalancedByDifficulty(candidates, PRACTICE_MAX_QUESTIONS, cryptoRng());
+  const selected = selectBalancedPreferUnseen(candidates, recentIds, PRACTICE_MAX_QUESTIONS, cryptoRng());
   const questionIds = selected.map((row) => row.id);
   if (questionIds.length === 0) {
     return { error: "There aren’t any active questions for this topic right now. Please check back soon." };
@@ -204,18 +221,43 @@ export async function checkPracticeAnswer(
 
   const { data, error } = await admin
     .from("questions")
-    .select("answer_text, hint, solution_steps")
+    .select("question_text, answer_text, hint, solution_steps")
     .eq("id", String(questionId))
     .eq("is_active", true)
     .maybeSingle();
   if (error || !data) return { error: "We couldn’t check that answer." };
 
-  const row = data as { answer_text: string; hint: string | null; solution_steps: string[] | null };
+  const row = data as {
+    question_text: string;
+    answer_text: string;
+    hint: string | null;
+    solution_steps: string[] | null;
+  };
   const steps = Array.isArray(row.solution_steps) ? row.solution_steps : [];
+  const isCorrect = isAnswerCorrect(String(submitted ?? ""), row.answer_text);
+  const staticHint = row.hint ?? "";
+
+  // On a wrong answer, try a mistake-specific AI hint and worked steps in
+  // parallel (feature-flagged by the presence of ANTHROPIC_API_KEY; no learner
+  // identity is sent). Marking above stays deterministic; each piece falls back
+  // to its seeded counterpart independently on any failure.
+  let hint = staticHint;
+  let explanation = explanationFor({ solution_steps: steps, hint: row.hint ?? undefined });
+  if (!isCorrect) {
+    const aiRequest = {
+      questionText: row.question_text,
+      expectedAnswer: row.answer_text,
+      learnerAnswer: String(submitted ?? ""),
+    };
+    const [aiHint, aiSteps] = await Promise.all([generateAiHint(aiRequest), generateAiSolutionSteps(aiRequest)]);
+    hint = aiHint ?? staticHint;
+    explanation = aiSteps ?? explanation;
+  }
+
   return {
-    isCorrect: isAnswerCorrect(String(submitted ?? ""), row.answer_text),
+    isCorrect,
     correctAnswer: row.answer_text,
-    hint: row.hint ?? "",
-    explanation: explanationFor({ solution_steps: steps, hint: row.hint ?? undefined }),
+    hint,
+    explanation,
   };
 }

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { gradeDiagnostic, selectDiagnosticQuestions, type DiagnosticQuestion } from "@/lib/math/diagnostic";
+import { generateAiHint } from "@/lib/ai/generate-hint";
 import { loadLearnerContext } from "@/lib/learner/profile";
 import { answersWithinLimit } from "@/lib/quiz/limits";
 import { loadSession, startSession, finalizeSession, submittedMatchesIssued, isSessionExpired } from "@/lib/quiz/session";
@@ -16,6 +17,8 @@ type QuestionRow = {
   difficulty: string;
   question_text: string;
   answer_text: string;
+  hint?: string | null;
+  solution_steps?: string[] | null;
   topic_id: string;
   topics: { name: string; slug: string } | { name: string; slug: string }[] | null;
 };
@@ -32,6 +35,8 @@ function toDiagnosticQuestion(row: QuestionRow): DiagnosticQuestion {
     topic_id: row.topic_id,
     topicName: topic?.name ?? "Algebra",
     topicSlug: topic?.slug ?? "",
+    hint: row.hint ?? undefined,
+    solution_steps: Array.isArray(row.solution_steps) ? row.solution_steps : undefined,
   };
 }
 
@@ -129,11 +134,11 @@ export async function submitDiagnostic(
     return { error: "Your answers didn’t match this diagnostic. Please retake it." };
   }
 
-  // Fetch the issued questions (with answer keys) and reject any that are no
-  // longer active.
+  // Fetch the issued questions (with answer keys, hints, and worked steps for
+  // the persisted review) and reject any that are no longer active.
   const { data, error } = await admin
     .from("questions")
-    .select("id, grade, marks, difficulty, question_text, answer_text, topic_id, topics(name, slug)")
+    .select("id, grade, marks, difficulty, question_text, answer_text, hint, solution_steps, topic_id, topics(name, slug)")
     .in("id", session.questionIds)
     .eq("is_active", true);
   if (error) return { error: "We couldn’t load the questions to mark your answers. Please try again." };
@@ -145,6 +150,25 @@ export async function submitDiagnostic(
 
   const answersById = new Map(answers.map((entry) => [entry.questionId, entry.answer]));
   const { summary, graded } = gradeDiagnostic(questions, answersById, session.grade ?? undefined);
+
+  // Mistake-specific AI hints for the persisted review (feature-flagged by
+  // ANTHROPIC_API_KEY; generateAiHint sends no learner identity and returns
+  // null on any failure). Generated once here, in parallel, then stored with
+  // the report — result-page views never call the API. Marking is already done.
+  const wrongItems = (summary.review ?? []).filter((item) => !item.isCorrect && item.submitted.trim().length > 0);
+  const aiHints = await Promise.all(
+    wrongItems.map((item) =>
+      generateAiHint({
+        questionText: item.questionText,
+        expectedAnswer: item.correctAnswer,
+        learnerAnswer: item.submitted,
+      }),
+    ),
+  );
+  wrongItems.forEach((item, index) => {
+    const aiHint = aiHints[index];
+    if (aiHint) item.aiHint = aiHint;
+  });
 
   const reportId = await finalizeSession(admin, {
     sessionId: session.id,

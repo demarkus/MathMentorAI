@@ -7,7 +7,7 @@
 The product is organised into four role-based modules:
 
 - **Learner** — topic catalogue, diagnostic quiz, topic practice, and a progress dashboard.
-- **Parent** — a progress-report area (placeholder until secure parent–learner linking ships).
+- **Parent** — secure parent–learner linking (learner-email invite, learner confirmation) and read-only progress reports for linked learners.
 - **Teacher** — "TeacherMate" worksheet/test/memo generator and a saved-resources library.
 - **Admin** — question-bank and topic content management.
 
@@ -28,7 +28,8 @@ The product is organised into four role-based modules:
 | Learner | Diagnostic quiz engine | ✅ |
 | Learner | Topic practice engine (hints + worked solutions) | ✅ |
 | Learner | Progress dashboard | ✅ |
-| Parent | Progress report area | ⏳ Placeholder (linking not built) |
+| Parent | Secure parent–learner linking (invite + learner confirmation) | ✅ (requires migration applied) |
+| Parent | Progress reports for linked learners | ✅ |
 | Teacher | Worksheet / test / memo / revision generator | ✅ |
 | Teacher | Saved resources library | ✅ (requires migration applied) |
 | Admin | Question management (create / edit / deactivate) | ✅ |
@@ -61,7 +62,7 @@ No CSS-in-JS is used. Automated tests run on **Vitest** (unit), a gated **Vitest
 │   │   ├── (auth)/             # login/signup compat redirects + shared auth server actions
 │   │   ├── auth/               # sign-in, sign-up, callback, sign-out
 │   │   ├── learner/            # topics, diagnostic, practice, progress
-│   │   ├── parent/             # reports (placeholder)
+│   │   ├── parent/             # learner linking + progress reports
 │   │   ├── teacher/            # generator, resources
 │   │   ├── admin/              # questions, topics
 │   │   ├── beta/  pricing/     # marketing
@@ -79,7 +80,7 @@ No CSS-in-JS is used. Automated tests run on **Vitest** (unit), a gated **Vitest
 │       └── marketing/          # plans
 ├── supabase/
 │   ├── schema.sql              # reference schema ONLY (tables + indexes + RLS + policies + functions; no seed)
-│   ├── seed.sql                # 14 topics + 108 questions (allow-list reconcile; rerunnable)
+│   ├── seed.sql                # 14 topics + 224 questions (allow-list reconcile; rerunnable)
 │   └── migrations/             # ordered, additive migrations (source of truth for a fresh DB)
 ├── docs/                       # product, scope, database, roadmap, security, deployment
 └── .env.example
@@ -119,8 +120,9 @@ Unit tests run on **Vitest** (`pnpm test`). Tests live in `tests/` and are
 excluded from the app `tsconfig`/lint; the `@` path alias is mirrored in
 `vitest.config.ts` so tests import source modules the way the app does.
 
-- **Covered:** `check-answer` (grading + `x = 5`↔`5` equivalence and its
-  documented limits), `answer-format`, `result-band`, `progress` (topic
+- **Covered:** `check-answer` (grading + the `x = 5`↔`5`, multi-root,
+  factor-order, and fraction↔decimal equivalences and their documented
+  limits), `answer-format`, `result-band`, `progress` (topic
   performance, weak/strong topics, recommendations, averages), `diagnostic` and
   `practice` (selection, grading, recommendations, summary shape guards),
   `teacher-resources` (generator input validation + question selection),
@@ -163,7 +165,8 @@ suite, and the gated integration + E2E suites on every push/PR.
    12. `20260704130052_harden_beta_leads.sql`
    13. `20260704140000_beta_lead_db_boundary.sql`
    14. `20260704150000_bound_quiz_abuse.sql`
-4. **Run the seed** — execute `supabase/seed.sql` (one command, safe to re-run). It reconciles only the **known baseline fingerprint** by an explicit allow-list: superseded baseline rows (unattempted, unedited) are replaced by the canonical set and the empty baseline `exam-revision` topic is dropped, while **custom admin topics/questions, edited rows, and any attempted rows are preserved** → clean 14 topics / 108 questions.
+   15. `20260705100000_add_parent_learner_links.sql`
+4. **Run the seed** — execute `supabase/seed.sql` (one command, safe to re-run). It reconciles only the **known baseline fingerprint** by an explicit allow-list: superseded baseline rows (unattempted, unedited) are replaced by the canonical set and the empty baseline `exam-revision` topic is dropped, while **custom admin topics/questions, edited rows, and any attempted rows are preserved** → clean 14 topics / 224 questions.
 5. **Enable email/password auth** — Authentication → Providers → Email. Set the Site URL and add `<your-app>/auth/callback` as a redirect URL for email confirmation.
 6. **RLS** is defined inside the SQL — every sensitive table has RLS enabled with owner-scoped policies. `supabase/schema.sql` is a **schema-only** reference of the same objects (never a setup path).
 
@@ -182,6 +185,7 @@ suite, and the gated integration + E2E suites on every push/PR.
 | `reports` | Persisted diagnostic/practice/progress summaries (jsonb). |
 | `teacher_resources` | Teacher-generated worksheets/tests/memos (owner-scoped). |
 | `beta_leads` | Public beta sign-up submissions (insert-only for the public). |
+| `parent_learner_links` | Parent→learner link requests (pending/accepted/rejected); an accepted link grants the parent read-only report access. |
 
 Full column and RLS detail is in [docs/DATABASE.md](docs/DATABASE.md).
 
@@ -195,7 +199,7 @@ Full column and RLS detail is in [docs/DATABASE.md](docs/DATABASE.md).
 
 **Learner:** `/learner` · `/learner/topics` · `/learner/topics/[slug]` · `/learner/diagnostic` · `/learner/diagnostic/result` · `/learner/practice` · `/learner/practice/[topicSlug]` · `/learner/practice/[topicSlug]/result` · `/learner/progress`
 
-**Parent:** `/parent` · `/parent/reports` · `/parent/reports/[learnerId]` (placeholder — no learner data queried)
+**Parent:** `/parent` · `/parent/reports` (send/remove link requests, linked learners) · `/parent/reports/[learnerId]` (real progress report — accepted links only)
 
 **Teacher:** `/teacher` · `/teacher/generator` · `/teacher/resources` · `/teacher/resources/[id]`
 
@@ -210,8 +214,8 @@ Full column and RLS detail is in [docs/DATABASE.md](docs/DATABASE.md).
 ## Security notes
 
 - **Role-based route protection** — every learner/parent/teacher/admin page and server action calls `requireRole(...)`; the `proxy.ts` middleware redirects unauthenticated users away from protected prefixes. Server-side auth is verified with `getClaims()`.
-- **RLS ownership** — learners read/write only their own `learner_profiles`, `attempts`, `quiz_sessions`, and `reports`. Topics and active questions are public read-only content.
-- **Parent reports do not expose learner data** — the report pages are placeholders; `/parent/reports/[learnerId]` ignores the param and queries nothing, pending secure linking.
+- **RLS ownership** — learners read/write only their own `learner_profiles`, `attempts`, `quiz_sessions`, and `reports`; a parent with an **accepted** `parent_learner_links` row may additionally read (never write) the linked learner's rows. Topics and active questions are public read-only content.
+- **Parent reports expose only linked learners' data** — a parent invites a learner by email (`parent_learner_links`) and only the addressed learner can accept. Until then the parent can read nothing. Access is **read-only** (progress stats, weak topics, recommendations — never any write access), enforced by RLS on the parent's own session and revocable by removing the link.
 - **Teacher resources are owner-scoped** — queries filter by `teacher_id`, detail routes 404 on non-owned ids, and RLS enforces owner-only access (admins may read all).
 - **Beta leads** allow public **insert** but **no public read** (admin-only select).
 - **Service-role key must never be exposed client-side** — it is read only in `src/lib/supabase/server.ts` and used only in server code.
@@ -223,10 +227,10 @@ More detail: [docs/SECURITY_NOTES.md](docs/SECURITY_NOTES.md).
 ## Current limitations
 
 - **No live payments** — pricing/beta capture leads only; no PayFast/Yoco/Stripe integration.
-- **Parent–learner linking not implemented** — parent report pages are safe placeholders.
-- **No AI explanations** — hints and worked steps come from seeded `solution_steps`, not a model.
-- **Answer checking is deterministic/string-based** — `normalizeAnswer` (NFKC, whitespace/operator normalisation), not symbolic algebra.
-- **Some persistence depends on migrations** — `teacher_resources`, `beta_leads`, and the security hardening (secure roles, protected answer keys, trusted submission, topic/grade FK, RLS role semantics, session expiry, beta-lead function) are only in force once their migrations are applied; the app degrades gracefully (placeholders) when they are absent.
+- **Parent linking has no secondary verification** — invitations are addressed to the learner's profile email; whoever controls that account can accept. Parents should check the address on their links list; removing a link revokes access instantly.
+- **AI hints and worked solutions are optional and additive** — when `ANTHROPIC_API_KEY` is set (server-only, read only in `src/lib/ai/`), a wrong practice answer gets a mistake-specific hint and tailored worked steps from Claude (steps that don't derive the stored answer are discarded), and diagnostic submissions persist AI hints into the review. Otherwise, and on any API failure/timeout, learners get the seeded hint/`solution_steps`. Only the question text, stored answer, and the learner's typed answer are sent — never learner identity. **Marking is never AI**.
+- **Answer checking is deterministic, same-form only** — `normalizeAnswer` (NFKC, whitespace/operator normalisation, unicode superscripts → carets) plus exact equivalences: `x = 5` ↔ `5`, multi-root sets in any order (`x=3 or x=2`), reordered bracketed factors (`(x+3)(x+2)`), exact fraction ↔ decimal (`1/2` ↔ `0.5`), and guarded same-form symbolic rewrites via mathjs (term order: `(2+x)` ↔ `(x+2)`, `1+2x+x^2` ↔ `x^2+2x+1`; server-side, difference must simplify to exactly 0). Cross-form equivalence is deliberately rejected — expanded is never accepted for factorised and unsimplified is never accepted for simplified, so "Factorise/Simplify" questions can't be answered by echoing the question back. No AI marking.
+- **Some persistence depends on migrations** — `teacher_resources`, `beta_leads`, `parent_learner_links`, and the security hardening (secure roles, protected answer keys, trusted submission, topic/grade FK, RLS role semantics, session expiry, beta-lead function) are only in force once their migrations are applied; the app degrades gracefully when they are absent.
 - **Email templates provided, install pending** — branded HTML lives in `supabase/templates/`; paste it into the Supabase dashboard ([docs/EMAIL_TEMPLATES.md](docs/EMAIL_TEMPLATES.md)). Supabase defaults are used until then.
 - **Test layers** — Vitest unit (`pnpm test`), a gated Vitest integration/RLS suite against a dedicated test project (`pnpm test:integration`), and Playwright E2E (`pnpm test:e2e`), all run in CI. The integration/E2E suites need their env secrets (and the migrations applied to the test project) to execute; they skip otherwise.
 
@@ -247,4 +251,4 @@ Full steps and checklist: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Roadmap (summary)
 
-PayFast/Yoco/Stripe payments · parent–learner linking · improved symbolic answer checking · AI-guided hints/explanations · PDF export for reports and worksheets · analytics · a fuller beta onboarding flow. See [docs/ROADMAP.md](docs/ROADMAP.md).
+PayFast/Yoco/Stripe payments · improved symbolic answer checking · AI-guided hints/explanations · PDF export for reports and worksheets · analytics · a fuller beta onboarding flow. See [docs/ROADMAP.md](docs/ROADMAP.md).

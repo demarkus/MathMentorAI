@@ -4,8 +4,11 @@ import {
   calculateTopicPerformance,
   findWeakTopics,
   findStrongTopics,
+  findPracticeFocus,
+  findCognitiveFocus,
   recommendNextTopic,
   summarizeRecentActivity,
+  type PracticeFocus,
   type ProgressAttempt,
   type ProgressSession,
   type TopicPerformance,
@@ -19,6 +22,8 @@ type QuestionEmbed = {
   topic_id: string;
   question_text: string;
   grade: number;
+  difficulty?: string | null;
+  cognitive_level?: string | null;
   topics: TopicEmbed;
 };
 type AttemptRow = {
@@ -50,6 +55,9 @@ export type LearnerProgress = {
   strongTopics: TopicPerformance[];
   recentActivity: ProgressAttempt[];
   recommendedTopic: TopicRef | null;
+  // A within-topic difficulty split on the recommended topic (routine questions
+  // strong, hard ones weak), when the recent window supports one.
+  recommendationFocus: PracticeFocus | null;
   latestDiagnostic: DiagnosticSummary | null;
 };
 
@@ -73,6 +81,8 @@ function mapAttempt(row: AttemptRow): ProgressAttempt | null {
     topicSlug: topic?.slug ?? "",
     grade: question.grade,
     createdAt: row.created_at,
+    difficulty: question.difficulty ?? undefined,
+    cognitiveLevel: question.cognitive_level ?? undefined,
   };
 }
 
@@ -88,6 +98,7 @@ const EMPTY_PROGRESS: LearnerProgress = {
   strongTopics: [],
   recentActivity: [],
   recommendedTopic: null,
+  recommendationFocus: null,
   latestDiagnostic: null,
 };
 
@@ -135,7 +146,7 @@ export async function loadLearnerProgress(
   // Bounded recent window for the per-topic breakdown + recent activity.
   const attemptsResult = await supabase
     .from("attempts")
-    .select("id, is_correct, score, created_at, questions(marks, topic_id, question_text, grade, topics(name, slug))")
+    .select("id, is_correct, score, created_at, questions(marks, topic_id, question_text, grade, difficulty, cognitive_level, topics(name, slug))")
     .eq("learner_id", learnerId)
     .order("created_at", { ascending: false })
     .limit(RECENT_ATTEMPT_SCAN);
@@ -216,6 +227,12 @@ export async function loadLearnerProgress(
   // different grade's topic.
   const recommendPerformance =
     grade === undefined ? topicPerformance : topicPerformance.filter((topic) => topic.grade === grade);
+  const recommendedTopic = recommendNextTopic(recommendPerformance, topics);
+  // Cognitive-level splits are the more specific signal (what KIND of thinking
+  // fails); fall back to the difficulty split when the bank isn't tagged yet.
+  const recommendationFocus = recommendedTopic
+    ? findCognitiveFocus(attempts, recommendedTopic.id) ?? findPracticeFocus(attempts, recommendedTopic.id)
+    : null;
 
   return {
     error: false,
@@ -228,7 +245,8 @@ export async function loadLearnerProgress(
     weakTopics: findWeakTopics(topicPerformance),
     strongTopics: findStrongTopics(topicPerformance),
     recentActivity: summarizeRecentActivity(attempts, 6),
-    recommendedTopic: recommendNextTopic(recommendPerformance, topics),
+    recommendedTopic,
+    recommendationFocus,
     latestDiagnostic,
   };
 }

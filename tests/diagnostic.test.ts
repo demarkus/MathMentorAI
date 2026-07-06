@@ -5,6 +5,7 @@ import {
   weakestTopic,
   selectDiagnosticQuestions,
   isDiagnosticSummary,
+  isDiagnosticReviewItem,
   DIAGNOSTIC_QUESTION_LIMIT,
   type DiagnosticQuestion,
   type DiagnosticSummary,
@@ -48,6 +49,38 @@ test("gradeDiagnostic: scores answers and builds per-topic breakdown", () => {
   expect(summary.weakTopics).not.toContain("Topic A");
   expect(graded.find((g) => g.questionId === "1")?.isCorrect).toBe(true);
   expect(graded.find((g) => g.questionId === "2")?.isCorrect).toBe(false);
+});
+
+test("gradeDiagnostic: builds a per-question review with answers, hints, and steps", () => {
+  const questions = [
+    dq({ id: "1", question_text: "Solve x+1=2", answer_text: "1", hint: "Subtract 1", solution_steps: ["x+1=2", "x=1"] }),
+    dq({ id: "2", question_text: "Solve x-1=4", answer_text: "5" }), // no hint / steps
+  ];
+  const answers = new Map([["1", "1"]]); // question 2 left blank
+
+  const { summary } = gradeDiagnostic(questions, answers);
+  expect(summary.review).toHaveLength(2);
+  expect(summary.review?.every(isDiagnosticReviewItem)).toBe(true);
+
+  const first = summary.review?.[0];
+  expect(first).toMatchObject({
+    questionId: "1",
+    questionText: "Solve x+1=2",
+    submitted: "1",
+    isCorrect: true,
+    correctAnswer: "1",
+    hint: "Subtract 1",
+    explanation: ["x+1=2", "x=1"],
+  });
+
+  const second = summary.review?.[1];
+  expect(second).toMatchObject({ questionId: "2", submitted: "", isCorrect: false, correctAnswer: "5", explanation: [] });
+  expect(second?.hint).toBeUndefined();
+
+  // Guards stay backward compatible: a summary without a review still validates,
+  // and one with a non-array review does not.
+  expect(isDiagnosticSummary({ percentage: 50, topics: [] })).toBe(true);
+  expect(isDiagnosticSummary({ percentage: 50, topics: [], review: "nope" })).toBe(false);
 });
 
 test("weakestTopic: returns the lowest-scoring attempted topic", () => {

@@ -145,6 +145,25 @@ create table public.beta_leads (
   )
 );
 
+-- Secure parent-learner linking: a parent invites a learner by email and only
+-- an ACCEPTED link grants the parent read access to that learner's data.
+create table public.parent_learner_links (
+  id uuid primary key default gen_random_uuid(),
+  parent_id uuid not null references public.profiles(id) on delete cascade,
+  learner_email text not null,
+  learner_id uuid references public.profiles(id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'rejected')),
+  created_at timestamptz not null default now(),
+  -- One link per (parent, learner email); re-inviting requires removing first.
+  unique (parent_id, learner_email),
+  -- Stored lowercase so the learner's profile-email match is exact.
+  constraint parent_learner_links_email_ck check (
+    char_length(learner_email) between 3 and 254
+    and learner_email = lower(learner_email)
+    and learner_email ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'
+  )
+);
+
 -- Indexes ------------------------------------------------------------------------
 create index attempts_learner_created_idx on public.attempts (learner_id, created_at desc);
 create index attempts_quiz_session_idx on public.attempts (quiz_session_id);
@@ -165,6 +184,10 @@ create index beta_leads_role_idx on public.beta_leads (role);
 create index beta_leads_created_at_idx on public.beta_leads (created_at desc);
 -- Concurrency-safe duplicate prevention: one lead per (email, plan).
 create unique index beta_leads_email_plan_uq on public.beta_leads (email, selected_plan);
+-- parent_learner_links: learner-side lookups (dashboard invitations + policy
+-- subqueries); parent-side lookups use the unique (parent_id, learner_email) index.
+create index parent_learner_links_learner_email_idx on public.parent_learner_links (learner_email);
+create index parent_learner_links_learner_id_idx on public.parent_learner_links (learner_id) where learner_id is not null;
 
 -- Row Level Security -------------------------------------------------------------
 alter table public.profiles enable row level security;
@@ -176,6 +199,7 @@ alter table public.attempts enable row level security;
 alter table public.reports enable row level security;
 alter table public.teacher_resources enable row level security;
 alter table public.beta_leads enable row level security;
+alter table public.parent_learner_links enable row level security;
 
 -- Grants -------------------------------------------------------------------------
 -- profiles: role/email are NOT client-updatable; only full_name is.
@@ -201,6 +225,14 @@ grant select, insert, update, delete on public.teacher_resources to authenticate
 
 -- Direct INSERT is NOT granted: all writes go through submit_beta_lead().
 grant select on public.beta_leads to authenticated;
+
+-- parent_learner_links: column-scoped writes — inserts may set only
+-- (parent_id, learner_email) (status/learner_id take their defaults) and
+-- updates may touch only (status, learner_id). Rows are scoped by the policies.
+grant select on public.parent_learner_links to authenticated;
+grant insert (parent_id, learner_email) on public.parent_learner_links to authenticated;
+grant update (status, learner_id) on public.parent_learner_links to authenticated;
+grant delete on public.parent_learner_links to authenticated;
 
 -- Policies -----------------------------------------------------------------------
 create policy "profiles_select_own" on public.profiles for select to authenticated
@@ -257,6 +289,81 @@ create policy "teacher_resources_select_admin" on public.teacher_resources for s
 -- No beta_leads insert policy: inserts happen only inside submit_beta_lead().
 create policy "beta_leads_select_admin" on public.beta_leads for select to authenticated
   using (exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.role = 'admin'));
+
+-- parent_learner_links: parents own their links; creating one requires the parent role.
+create policy "parent_learner_links_select_parent" on public.parent_learner_links for select to authenticated
+  using ((select auth.uid()) = parent_id);
+create policy "parent_learner_links_insert_parent" on public.parent_learner_links for insert to authenticated
+  with check (
+    (select auth.uid()) = parent_id
+    and exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.role = 'parent')
+  );
+create policy "parent_learner_links_delete_parent" on public.parent_learner_links for delete to authenticated
+  using ((select auth.uid()) = parent_id);
+
+-- parent_learner_links: learners see invitations addressed to their profile
+-- email and may respond — the new state must be a decision (never back to
+-- 'pending') and learner_id may only ever bind to the responder; accepting
+-- REQUIRES the self-binding.
+create policy "parent_learner_links_select_learner" on public.parent_learner_links for select to authenticated
+  using (
+    exists (select 1 from public.profiles p where p.id = (select auth.uid()) and lower(p.email) = learner_email)
+  );
+create policy "parent_learner_links_update_learner" on public.parent_learner_links for update to authenticated
+  using (
+    exists (select 1 from public.profiles p where p.id = (select auth.uid()) and lower(p.email) = learner_email)
+  )
+  with check (
+    exists (select 1 from public.profiles p where p.id = (select auth.uid()) and lower(p.email) = learner_email)
+    and status in ('accepted', 'rejected')
+    and (learner_id is null or learner_id = (select auth.uid()))
+    and (status <> 'accepted' or learner_id = (select auth.uid()))
+  );
+
+-- Parent read access to learner data, gated on an ACCEPTED link. Additive
+-- SELECT-only policies; learner/owner access unchanged, no write access added.
+create policy "learner_profiles_select_linked_parent" on public.learner_profiles for select to authenticated
+  using (
+    exists (
+      select 1 from public.parent_learner_links pll
+      where pll.parent_id = (select auth.uid())
+        and pll.status = 'accepted'
+        and pll.learner_id = learner_profiles.user_id
+    )
+  );
+create policy "quiz_sessions_select_linked_parent" on public.quiz_sessions for select to authenticated
+  using (
+    exists (
+      select 1
+      from public.parent_learner_links pll
+      join public.learner_profiles lp on lp.user_id = pll.learner_id
+      where pll.parent_id = (select auth.uid())
+        and pll.status = 'accepted'
+        and lp.id = quiz_sessions.learner_id
+    )
+  );
+create policy "attempts_select_linked_parent" on public.attempts for select to authenticated
+  using (
+    exists (
+      select 1
+      from public.parent_learner_links pll
+      join public.learner_profiles lp on lp.user_id = pll.learner_id
+      where pll.parent_id = (select auth.uid())
+        and pll.status = 'accepted'
+        and lp.id = attempts.learner_id
+    )
+  );
+create policy "reports_select_linked_parent" on public.reports for select to authenticated
+  using (
+    exists (
+      select 1
+      from public.parent_learner_links pll
+      join public.learner_profiles lp on lp.user_id = pll.learner_id
+      where pll.parent_id = (select auth.uid())
+        and pll.status = 'accepted'
+        and lp.id = reports.learner_id
+    )
+  );
 
 -- Functions & triggers -----------------------------------------------------------
 -- Provisions a profile row when an auth user is created.

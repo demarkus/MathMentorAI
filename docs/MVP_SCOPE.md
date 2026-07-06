@@ -23,7 +23,9 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 - Progress dashboard: average score, topic performance, weak/strong topics, recent activity, recommended next topic.
 
 ### Parent module
-- Progress-report area (`/parent/reports`) and per-learner route — **placeholders only**, deliberately querying no learner data.
+- Secure parent–learner linking (`parent_learner_links`): parents invite by learner email; the learner accepts or rejects from their dashboard; only an **accepted** link grants read access (RLS-enforced).
+- Progress-report area (`/parent/reports`): send/remove link requests, see active links and pending invitations.
+- Per-learner report (`/parent/reports/[learnerId]`): real stats for linked learners — quizzes, attempts, average score, weak topics, and recommended practice (server-side authorization + RLS).
 
 ### Teacher module
 - TeacherMate generator (`/teacher/generator`): worksheet / test / memo / revision pack from existing questions, input validation (1–30 questions), immediate preview, browser print.
@@ -41,9 +43,8 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 ## 🚫 Intentionally excluded (for now)
 
 - **Live payments / checkout** — no PayFast/Yoco/Stripe; pricing and beta capture leads only.
-- **Parent–learner linking** — no mechanism to securely connect a parent to a learner; reports stay placeholders.
 - **AI hints/explanations** — explanations come from seeded `solution_steps`, not a model.
-- **Symbolic answer checking** — answers are matched with deterministic string normalisation, not a CAS.
+- **Symbolic answer checking** — answers are matched with deterministic string normalisation plus limited exact equivalences (`x = 5` ↔ `5`, multi-root order, factor order, fraction ↔ decimal), not a CAS.
 - **PDF export** — teacher resources print via the browser; no server-side PDF.
 - **Full symbolic/DB-side analytics** — progress uses bounded scans + COUNT aggregates, not a warehouse.
 - **Installed production email templates** — branded HTML is provided in `supabase/templates/` ([EMAIL_TEMPLATES.md](EMAIL_TEMPLATES.md)); pasting it into the Supabase dashboard is still pending.
@@ -58,13 +59,13 @@ This is the honest, code-backed boundary of the current MVP. Features are only l
 | Role protection on all protected routes | ✅ |
 | RLS enabled + owner-scoped on all sensitive tables | ✅ |
 | Learner core loop (diagnostic → practice → progress) | ✅ |
-| CAPS-tagged seed content (14 topics, 108 questions)¹ | ✅ |
+| CAPS-tagged seed content (14 topics, 224 questions)¹ | ✅ |
 | Teacher generator + print | ✅ |
 | Admin question management | ✅ |
 | Lead capture for pricing/beta | ✅ |
 | All migrations applied to the target DB | ⚠️ Required before beta |
 | Payment collection | ❌ Roadmap |
-| Parent–learner linking | ❌ Roadmap |
+| Parent–learner linking + real parent reports | ✅ |
 | Automated tests | ✅ Unit (Vitest) + gated integration/RLS + Playwright E2E, all in CI |
 | Production email templates | ⚠️ Provided in `supabase/templates/`; install in dashboard |
 

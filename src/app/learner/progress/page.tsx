@@ -66,7 +66,9 @@ function ProgressView({ progress }: { progress: LearnerProgress }) {
             <p className="text-xs font-semibold uppercase tracking-wide text-brand">Recommended next</p>
             <h3 className="mt-1 text-lg font-semibold">{progress.recommendedTopic.name}</h3>
             <p className="mt-2 text-sm text-muted">
-              Grade {progress.recommendedTopic.grade} · a focused practice set to lift your weakest area.
+              {progress.recommendationFocus
+                ? `Grade ${progress.recommendedTopic.grade} · ${progress.recommendationFocus.message}`
+                : `Grade ${progress.recommendedTopic.grade} · a focused practice set to lift your weakest area.`}
             </p>
             <span className="mt-auto inline-flex items-center gap-1 pt-4 text-sm font-semibold text-brand group-hover:gap-2">
               Practise this topic <span aria-hidden>→</span>
