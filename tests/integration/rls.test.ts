@@ -25,18 +25,22 @@ describe.skipIf(!hasIntegrationEnv)("RLS boundaries", () => {
   let teacherA: TestUser;
   let teacherB: TestUser;
   let admin: TestUser;
+  let parentA: TestUser;
+  let parentB: TestUser;
 
   let fixtureTopicId: string | undefined;
   let activeQuestionId: string;
   let inactiveQuestionId: string;
 
   beforeAll(async () => {
-    [learnerA, learnerB, teacherA, teacherB, admin] = await Promise.all([
+    [learnerA, learnerB, teacherA, teacherB, admin, parentA, parentB] = await Promise.all([
       createTestUser("student", { grade: 9 }),
       createTestUser("student", { grade: 10 }),
       createTestUser("teacher"),
       createTestUser("teacher"),
       createTestUser("admin"),
+      createTestUser("parent"),
+      createTestUser("parent"),
     ]);
 
     const topic = await createFixtureTopic();
@@ -51,7 +55,7 @@ describe.skipIf(!hasIntegrationEnv)("RLS boundaries", () => {
 
   afterAll(async () => {
     await deleteFixtureTopic(fixtureTopicId); // cascades to fixture questions/attempts
-    await deleteTestUsers(learnerA, learnerB, teacherA, teacherB, admin);
+    await deleteTestUsers(learnerA, learnerB, teacherA, teacherB, admin, parentA, parentB);
   });
 
   describe("profiles", () => {
@@ -192,6 +196,171 @@ describe.skipIf(!hasIntegrationEnv)("RLS boundaries", () => {
 
       const adminClient = await signInAs(admin);
       expect((await adminClient.from("teacher_resources").select("id").eq("id", id)).data).toEqual([{ id }]);
+    });
+  });
+
+  describe("parent_learner_links (secure linking) + parent report access", () => {
+    let linkId: string;
+    let lpA: string;
+    let sessionId: string;
+    let attemptId: string;
+    let reportId: string;
+
+    // Learner data fixtures the parent policies are checked against.
+    beforeAll(async () => {
+      const svc = serviceClient();
+      lpA = await learnerProfileId(learnerA.id);
+
+      const session = await svc
+        .from("quiz_sessions")
+        .insert({ learner_id: lpA, quiz_type: "practice", score: 3, total_marks: 10, percentage: 30 })
+        .select("id")
+        .single();
+      expect(session.error).toBeNull();
+      sessionId = (session.data as { id: string }).id;
+
+      const attempt = await svc
+        .from("attempts")
+        .insert({ learner_id: lpA, question_id: activeQuestionId, submitted_answer: "2", is_correct: true, score: 1 })
+        .select("id")
+        .single();
+      expect(attempt.error).toBeNull();
+      attemptId = (attempt.data as { id: string }).id;
+
+      const report = await svc
+        .from("reports")
+        .insert({ learner_id: lpA, report_type: "practice", data: {} })
+        .select("id")
+        .single();
+      expect(report.error).toBeNull();
+      reportId = (report.data as { id: string }).id;
+    });
+
+    test("only a parent can create a link, and only as themselves", async () => {
+      // A learner (non-parent role) cannot create a link at all.
+      const learner = await signInAs(learnerB);
+      const asLearner = await learner
+        .from("parent_learner_links")
+        .insert({ parent_id: learnerB.id, learner_email: learnerA.email });
+      expect(asLearner.error).not.toBeNull();
+
+      // A parent cannot create a link on behalf of another parent.
+      const a = await signInAs(parentA);
+      const spoofed = await a
+        .from("parent_learner_links")
+        .insert({ parent_id: parentB.id, learner_email: learnerA.email });
+      expect(spoofed.error).not.toBeNull();
+
+      // A parent creates their own link; status/learner_id take their defaults.
+      const inserted = await a
+        .from("parent_learner_links")
+        .insert({ parent_id: parentA.id, learner_email: learnerA.email })
+        .select("id, status, learner_id")
+        .single();
+      expect(inserted.error).toBeNull();
+      expect(inserted.data).toMatchObject({ status: "pending", learner_id: null });
+      linkId = (inserted.data as { id: string }).id;
+
+      // A parent cannot pre-set status/learner_id (columns are not insertable).
+      const preAccepted = await a
+        .from("parent_learner_links")
+        .insert({ parent_id: parentA.id, learner_email: learnerB.email, status: "accepted" });
+      expect(preAccepted.error).not.toBeNull();
+    });
+
+    test("only the addressed learner sees the invitation", async () => {
+      const a = await signInAs(learnerA);
+      expect((await a.from("parent_learner_links").select("id").eq("id", linkId)).data).toEqual([{ id: linkId }]);
+
+      const b = await signInAs(learnerB);
+      expect((await b.from("parent_learner_links").select("id").eq("id", linkId)).data).toEqual([]);
+
+      const otherParent = await signInAs(parentB);
+      expect((await otherParent.from("parent_learner_links").select("id").eq("id", linkId)).data).toEqual([]);
+    });
+
+    test("a pending link grants the parent no access to learner data", async () => {
+      const a = await signInAs(parentA);
+      expect((await a.from("learner_profiles").select("id").eq("id", lpA)).data).toEqual([]);
+      expect((await a.from("quiz_sessions").select("id").eq("id", sessionId)).data).toEqual([]);
+      expect((await a.from("attempts").select("id").eq("id", attemptId)).data).toEqual([]);
+      expect((await a.from("reports").select("id").eq("id", reportId)).data).toEqual([]);
+    });
+
+    test("a learner cannot hijack or corrupt the invitation", async () => {
+      const a = await signInAs(learnerA);
+
+      // Cannot bind the link to another account.
+      const hijack = await a
+        .from("parent_learner_links")
+        .update({ status: "accepted", learner_id: learnerB.id })
+        .eq("id", linkId);
+      expect(hijack.error).not.toBeNull();
+
+      // Cannot accept without binding themselves.
+      const unbound = await a.from("parent_learner_links").update({ status: "accepted" }).eq("id", linkId);
+      expect(unbound.error).not.toBeNull();
+
+      // Cannot rewrite the addressed email (column is not updatable).
+      const rewrite = await a
+        .from("parent_learner_links")
+        .update({ learner_email: learnerB.email })
+        .eq("id", linkId);
+      expect(rewrite.error).not.toBeNull();
+
+      // Another learner cannot respond at all (0 rows visible to update).
+      const b = await signInAs(learnerB);
+      const foreign = await b
+        .from("parent_learner_links")
+        .update({ status: "accepted", learner_id: learnerB.id })
+        .eq("id", linkId)
+        .select("id");
+      expect(foreign.data ?? []).toEqual([]);
+    });
+
+    test("accepting the link grants the linked parent read access; others stay locked out", async () => {
+      const learner = await signInAs(learnerA);
+      const accepted = await learner
+        .from("parent_learner_links")
+        .update({ status: "accepted", learner_id: learnerA.id })
+        .eq("id", linkId)
+        .select("id, status");
+      expect(accepted.error).toBeNull();
+      expect(accepted.data).toEqual([{ id: linkId, status: "accepted" }]);
+
+      // The linked parent can now read the learner's data…
+      const a = await signInAs(parentA);
+      expect((await a.from("learner_profiles").select("id").eq("id", lpA)).data).toEqual([{ id: lpA }]);
+      expect((await a.from("quiz_sessions").select("id").eq("id", sessionId)).data).toEqual([{ id: sessionId }]);
+      expect((await a.from("attempts").select("id").eq("id", attemptId)).data).toEqual([{ id: attemptId }]);
+      expect((await a.from("reports").select("id").eq("id", reportId)).data).toEqual([{ id: reportId }]);
+
+      // …but still cannot write any of it.
+      const write = await a.from("reports").insert({ learner_id: lpA, report_type: "practice", data: {} });
+      expect(write.error).not.toBeNull();
+
+      // A non-linked parent still sees nothing.
+      const b = await signInAs(parentB);
+      expect((await b.from("learner_profiles").select("id").eq("id", lpA)).data).toEqual([]);
+      expect((await b.from("quiz_sessions").select("id").eq("id", sessionId)).data).toEqual([]);
+      expect((await b.from("attempts").select("id").eq("id", attemptId)).data).toEqual([]);
+      expect((await b.from("reports").select("id").eq("id", reportId)).data).toEqual([]);
+    });
+
+    test("only the owning parent can remove the link, which revokes access", async () => {
+      // Another parent cannot delete it (0 rows visible to delete).
+      const b = await signInAs(parentB);
+      const foreign = await b.from("parent_learner_links").delete().eq("id", linkId).select("id");
+      expect(foreign.data ?? []).toEqual([]);
+
+      const a = await signInAs(parentA);
+      const removed = await a.from("parent_learner_links").delete().eq("id", linkId).select("id");
+      expect(removed.error).toBeNull();
+      expect(removed.data).toEqual([{ id: linkId }]);
+
+      // Access is revoked immediately.
+      expect((await a.from("learner_profiles").select("id").eq("id", lpA)).data).toEqual([]);
+      expect((await a.from("reports").select("id").eq("id", reportId)).data).toEqual([]);
     });
   });
 
