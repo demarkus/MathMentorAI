@@ -11,6 +11,8 @@ import {
   type PracticeQuestion,
 } from "@/lib/math/practice";
 import { isAnswerCorrect } from "@/lib/math/check-answer";
+import { generateAiHint } from "@/lib/ai/generate-hint";
+import { generateAiSolutionSteps } from "@/lib/ai/generate-solution";
 import { answersWithinLimit, isAnswerWithinLimit } from "@/lib/quiz/limits";
 import { selectBalancedByDifficulty, cryptoRng } from "@/lib/util/shuffle";
 import { loadSession, startSession, finalizeSession, submittedMatchesIssued, isSessionExpired } from "@/lib/quiz/session";
@@ -204,18 +206,43 @@ export async function checkPracticeAnswer(
 
   const { data, error } = await admin
     .from("questions")
-    .select("answer_text, hint, solution_steps")
+    .select("question_text, answer_text, hint, solution_steps")
     .eq("id", String(questionId))
     .eq("is_active", true)
     .maybeSingle();
   if (error || !data) return { error: "We couldn’t check that answer." };
 
-  const row = data as { answer_text: string; hint: string | null; solution_steps: string[] | null };
+  const row = data as {
+    question_text: string;
+    answer_text: string;
+    hint: string | null;
+    solution_steps: string[] | null;
+  };
   const steps = Array.isArray(row.solution_steps) ? row.solution_steps : [];
+  const isCorrect = isAnswerCorrect(String(submitted ?? ""), row.answer_text);
+  const staticHint = row.hint ?? "";
+
+  // On a wrong answer, try a mistake-specific AI hint and worked steps in
+  // parallel (feature-flagged by the presence of ANTHROPIC_API_KEY; no learner
+  // identity is sent). Marking above stays deterministic; each piece falls back
+  // to its seeded counterpart independently on any failure.
+  let hint = staticHint;
+  let explanation = explanationFor({ solution_steps: steps, hint: row.hint ?? undefined });
+  if (!isCorrect) {
+    const aiRequest = {
+      questionText: row.question_text,
+      expectedAnswer: row.answer_text,
+      learnerAnswer: String(submitted ?? ""),
+    };
+    const [aiHint, aiSteps] = await Promise.all([generateAiHint(aiRequest), generateAiSolutionSteps(aiRequest)]);
+    hint = aiHint ?? staticHint;
+    explanation = aiSteps ?? explanation;
+  }
+
   return {
-    isCorrect: isAnswerCorrect(String(submitted ?? ""), row.answer_text),
+    isCorrect,
     correctAnswer: row.answer_text,
-    hint: row.hint ?? "",
-    explanation: explanationFor({ solution_steps: steps, hint: row.hint ?? undefined }),
+    hint,
+    explanation,
   };
 }
