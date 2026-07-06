@@ -12,6 +12,10 @@ export type DiagnosticQuestion = {
   topic_id: string;
   topicName: string;
   topicSlug: string;
+  // Present only on the grading path (fetched with the answer keys after
+  // submission); the pre-submission selection path never loads these.
+  hint?: string;
+  solution_steps?: string[];
 };
 
 export type TopicBreakdown = {
@@ -20,6 +24,24 @@ export type TopicBreakdown = {
   correct: number;
   total: number;
   percentage: number;
+};
+
+/**
+ * Per-question feedback embedded in the PERSISTED report only. It contains the
+ * correct answer, hint, and worked steps, so it must never be built before
+ * submission — gradeDiagnostic is only called on the trusted grading path.
+ */
+export type DiagnosticReviewItem = {
+  questionId: string;
+  questionText: string;
+  submitted: string;
+  isCorrect: boolean;
+  correctAnswer: string;
+  hint?: string;
+  // Mistake-specific AI hint, generated once at grading time (never at render)
+  // and persisted with the report. Absent when the feature is off or failed.
+  aiHint?: string;
+  explanation: string[];
 };
 
 export type DiagnosticSummary = {
@@ -34,6 +56,9 @@ export type DiagnosticSummary = {
   // The grade this diagnostic covered. Optional so previously-persisted reports
   // (written before diagnostics became grade-scoped) still validate and render.
   grade?: number;
+  // Question-by-question review. Optional so previously-persisted reports
+  // (written before the review existed) still validate and render.
+  review?: DiagnosticReviewItem[];
 };
 
 export type GradedQuestion = {
@@ -100,6 +125,7 @@ export function gradeDiagnostic(
 ): DiagnosticResult {
   const topics = new Map<string, TopicBreakdown>();
   const graded: GradedQuestion[] = [];
+  const review: DiagnosticReviewItem[] = [];
   let score = 0;
   let totalMarks = 0;
   let correct = 0;
@@ -113,6 +139,15 @@ export function gradeDiagnostic(
       correct += 1;
     }
     graded.push({ questionId: question.id, submitted, isCorrect: ok, score: ok ? question.marks : 0 });
+    review.push({
+      questionId: question.id,
+      questionText: question.question_text,
+      submitted,
+      isCorrect: ok,
+      correctAnswer: question.answer_text,
+      ...(question.hint ? { hint: question.hint } : {}),
+      explanation: question.solution_steps ?? [],
+    });
 
     const breakdown = topics.get(question.topic_id) ?? {
       topic: question.topicName,
@@ -141,6 +176,7 @@ export function gradeDiagnostic(
     strongTopics: topicList.filter((topic) => topic.percentage >= 80).map((topic) => topic.topic),
     topics: topicList,
     grade,
+    review,
   };
 
   return { summary, graded };
@@ -178,5 +214,24 @@ export function buildRecommendation(summary: DiagnosticSummary): string {
 export function isDiagnosticSummary(value: unknown): value is DiagnosticSummary {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Record<string, unknown>;
-  return typeof candidate.percentage === "number" && Array.isArray(candidate.topics);
+  return (
+    typeof candidate.percentage === "number" &&
+    Array.isArray(candidate.topics) &&
+    // Older reports have no review; when present it must be an array.
+    (candidate.review === undefined || Array.isArray(candidate.review))
+  );
+}
+
+/** Runtime guard for one review item from the persisted report jsonb. */
+export function isDiagnosticReviewItem(value: unknown): value is DiagnosticReviewItem {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.questionId === "string" &&
+    typeof candidate.questionText === "string" &&
+    typeof candidate.submitted === "string" &&
+    typeof candidate.isCorrect === "boolean" &&
+    typeof candidate.correctAnswer === "string" &&
+    Array.isArray(candidate.explanation)
+  );
 }

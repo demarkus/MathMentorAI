@@ -8,6 +8,9 @@ import {
   type PracticeSummary,
 } from "@/lib/math/practice";
 import { resultBand } from "@/lib/math/result-band";
+import { formatQuestion } from "@/lib/math/format-question";
+import { loadLearnerContext, isValidGrade } from "@/lib/learner/profile";
+import { loadLearnerProgress } from "@/lib/progress/load-progress";
 import { WorkedSteps } from "@/components/quiz/Explanation";
 import { Badge } from "@/components/ui/Badge";
 
@@ -37,7 +40,7 @@ export default async function PracticeResultPage({
   params: Promise<{ topicSlug: string }>;
   searchParams: Promise<{ report?: string }>;
 }) {
-  await requireRole("learner");
+  const user = await requireRole("learner");
   const { topicSlug } = await params;
   const { report } = await searchParams;
 
@@ -72,6 +75,19 @@ export default async function PracticeResultPage({
   const mistakes = summary.questions.filter((question) => !question.isCorrect).length;
   const band = resultBand(summary.percentage);
 
+  // Recommend a concrete next topic from recent history (weakest attempted,
+  // else first unattempted). The just-finished run's attempts are persisted
+  // before this page renders, so the recommendation already reflects them.
+  // Skipped when it would just duplicate the "Retry this topic" button.
+  const supabase = await createClient();
+  const learner = await loadLearnerContext(supabase, user.id);
+  const grade = isValidGrade(summary.grade) ? summary.grade : learner?.grade;
+  const progress = learner ? await loadLearnerProgress(supabase, learner.id, grade) : null;
+  const nextTopic =
+    progress?.recommendedTopic && progress.recommendedTopic.slug !== (summary.topicSlug || topicSlug)
+      ? progress.recommendedTopic
+      : null;
+
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div className="rounded-3xl border border-line bg-white p-8 text-center">
@@ -98,7 +114,7 @@ export default async function PracticeResultPage({
             <div key={question.questionId} className="rounded-2xl border border-line bg-white p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <p className="font-mono text-lg font-semibold">
-                  {questionIndex + 1}. {question.questionText}
+                  {questionIndex + 1}. {formatQuestion(question.questionText)}
                 </p>
                 <span
                   className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
@@ -110,11 +126,12 @@ export default async function PracticeResultPage({
               </div>
               <p className="mt-3 text-sm text-muted">
                 Your answer:{" "}
-                <span className="font-mono text-foreground">{question.submitted || "—"}</span>
+                <span className="font-mono text-foreground">{question.submitted ? formatQuestion(question.submitted) : "—"}</span>
               </p>
               {!question.isCorrect && (
                 <p className="mt-1 text-sm text-muted">
-                  Correct answer: <span className="font-mono font-semibold text-foreground">{question.correctAnswer}</span>
+                  Correct answer:{" "}
+                  <span className="font-mono font-semibold text-foreground">{formatQuestion(question.correctAnswer)}</span>
                 </p>
               )}
               <div className="mt-3 text-muted">
@@ -127,7 +144,22 @@ export default async function PracticeResultPage({
       </section>
 
       <div className="flex flex-wrap gap-3">
-        <Link href={retryHref} className="rounded-xl bg-brand px-5 py-3 font-semibold text-white hover:bg-brand-dark">
+        {nextTopic && (
+          <Link
+            href={`/learner/practice/${nextTopic.slug}${nextTopic.grade ? `?grade=${nextTopic.grade}` : ""}`}
+            className="rounded-xl bg-brand px-5 py-3 font-semibold text-white hover:bg-brand-dark"
+          >
+            Practise {nextTopic.name} next
+          </Link>
+        )}
+        <Link
+          href={retryHref}
+          className={
+            nextTopic
+              ? "rounded-xl border border-line px-5 py-3 font-semibold hover:border-brand/40"
+              : "rounded-xl bg-brand px-5 py-3 font-semibold text-white hover:bg-brand-dark"
+          }
+        >
           Retry this topic
         </Link>
         <Link href="/learner/practice" className="rounded-xl border border-line px-5 py-3 font-semibold hover:border-brand/40">

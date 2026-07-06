@@ -13,20 +13,38 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-// A recording, chainable Supabase query builder over a single preset row.
+// A recording, chainable, table-aware Supabase query builder. `presetRow`
+// backs the reports read; learner_profiles and topics have their own presets so
+// the practice page's next-topic recommendation can be exercised. Any other
+// awaited chain resolves empty (list + count queries used by progress loading).
 type Row = { data: unknown; report_type: string } | null;
 const eqCalls: Array<[string, unknown]> = [];
 let presetRow: Row = null;
 let presetError: unknown = null;
+let learnerProfileRow: { id: string; grade: number } | null = null;
+let topicRows: Array<{ id: string; name: string; slug: string; grade: number; display_order: number }> = [];
+
+function queryBuilder(table: string) {
+  const builder = {
+    select: vi.fn(() => builder),
+    eq: vi.fn((col: string, val: unknown) => {
+      eqCalls.push([col, val]);
+      return builder;
+    }),
+    order: vi.fn(() => builder),
+    limit: vi.fn(() => builder),
+    maybeSingle: vi.fn(async () => {
+      if (table === "learner_profiles") return { data: learnerProfileRow, error: null };
+      return { data: presetRow, error: presetError };
+    }),
+    then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+      Promise.resolve({ data: table === "topics" ? topicRows : [], count: 0, error: null }).then(resolve, reject),
+  };
+  return builder;
+}
 
 const supabaseMock = {
-  from: vi.fn(() => supabaseMock),
-  select: vi.fn(() => supabaseMock),
-  eq: vi.fn((col: string, val: unknown) => {
-    eqCalls.push([col, val]);
-    return supabaseMock;
-  }),
-  maybeSingle: vi.fn(async () => ({ data: presetRow, error: presetError })),
+  from: vi.fn((table: string) => queryBuilder(table)),
 };
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -63,6 +81,8 @@ beforeEach(() => {
   eqCalls.length = 0;
   presetRow = null;
   presetError = null;
+  learnerProfileRow = null;
+  topicRows = [];
   supabaseMock.from.mockClear();
 });
 
@@ -103,6 +123,25 @@ test("practice: a valid owned report on its canonical slug renders and filters b
   expect(html).toContain("50%");
   expect(eqCalls).toContainEqual(["id", "r-2"]);
   expect(eqCalls).toContainEqual(["report_type", "practice"]);
+});
+
+test("practice: recommends a different next topic when one exists", async () => {
+  presetRow = { data: PRACTICE_SUMMARY, report_type: "practice" };
+  learnerProfileRow = { id: "lp1", grade: 9 };
+  // No attempts in the mock window, so the first unattempted topic is recommended.
+  topicRows = [{ id: "t-exp", name: "Exponents", slug: "exponents", grade: 9, display_order: 1 }];
+  const html = await renderPractice("factorisation", { report: "r-2" });
+  expect(html).toContain("Practise Exponents next"); // display name, not slug
+  expect(html).toContain("/learner/practice/exponents?grade=9");
+});
+
+test("practice: no CTA when the recommendation is the topic just practised", async () => {
+  presetRow = { data: PRACTICE_SUMMARY, report_type: "practice" };
+  learnerProfileRow = { id: "lp1", grade: 9 };
+  topicRows = [{ id: "t-fac", name: "Factorisation", slug: "factorisation", grade: 9, display_order: 1 }];
+  const html = await renderPractice("factorisation", { report: "r-2" });
+  expect(html).not.toContain("next</a>");
+  expect(html).toContain("Retry this topic"); // retry stays the primary action
 });
 
 test("practice: a report on the wrong topic slug redirects to its canonical route", async () => {
