@@ -5,7 +5,7 @@ import {
   isAnswerWithinLimit,
   answersWithinLimit,
 } from "@/lib/quiz/limits";
-import { chooseSessionStart, type ActiveSessionRow } from "@/lib/quiz/session";
+import { chooseSessionStart, SESSION_REUSE_GRACE_MS, type ActiveSessionRow } from "@/lib/quiz/session";
 
 // ---- Answer length bounds (oversized answers) ----
 
@@ -26,35 +26,63 @@ test("empty / null answers are within the limit", () => {
   expect(isAnswerWithinLimit(null)).toBe(true);
 });
 
-// ---- Session reuse / cap (repeated starts, abuse cap) ----
+// ---- Session reuse / supersede / cap (repeated starts, abuse cap) ----
+
+const NOW = Date.parse("2026-07-07T12:00:00Z");
+const FRESH_AT = new Date(NOW - 30_000).toISOString(); // 30s ago — within the grace window
+const STALE_AT = new Date(NOW - SESSION_REUSE_GRACE_MS - 60_000).toISOString(); // abandoned
 
 function active(over: Partial<ActiveSessionRow> = {}): ActiveSessionRow {
-  return { id: "s1", quizType: "practice", topicId: "t1", grade: 9, ...over };
+  return { id: "s1", quizType: "practice", topicId: "t1", grade: 9, createdAt: FRESH_AT, ...over };
 }
 
-test("a repeated start reuses a matching active session (same type + topic + grade)", () => {
-  const rows = [active({ id: "existing", quizType: "practice", topicId: "t1", grade: 9 })];
-  const decision = chooseSessionStart(rows, { quizType: "practice", topicId: "t1", grade: 9 });
-  expect(decision).toEqual({ kind: "reuse", sessionId: "existing" });
+function decide(rows: ActiveSessionRow[], want: Parameters<typeof chooseSessionStart>[1]) {
+  return chooseSessionStart(rows, want, MAX_ACTIVE_ISSUED_SESSIONS, NOW);
+}
+
+test("a repeated start reuses a just-issued matching session (same type + topic + grade)", () => {
+  const rows = [active({ id: "existing" })];
+  expect(decide(rows, { quizType: "practice", topicId: "t1", grade: 9 })).toEqual({
+    kind: "reuse",
+    sessionId: "existing",
+  });
 });
 
-test("a different topic/grade does not reuse — it creates", () => {
+test("an abandoned matching session is superseded, not resumed", () => {
+  const rows = [active({ id: "stale", createdAt: STALE_AT })];
+  expect(decide(rows, { quizType: "practice", topicId: "t1", grade: 9 })).toEqual({
+    kind: "create",
+    supersededIds: ["stale"],
+  });
+  // An unparseable timestamp counts as stale too (never resumed by accident).
+  const broken = [active({ id: "broken", createdAt: "not-a-date" })];
+  expect(decide(broken, { quizType: "practice", topicId: "t1", grade: 9 })).toEqual({
+    kind: "create",
+    supersededIds: ["broken"],
+  });
+});
+
+test("a different topic/grade does not reuse — it creates without superseding", () => {
   const rows = [active({ id: "other", topicId: "t1", grade: 9 })];
-  expect(chooseSessionStart(rows, { quizType: "practice", topicId: "t2", grade: 9 })).toEqual({ kind: "create" });
-  expect(chooseSessionStart(rows, { quizType: "practice", topicId: "t1", grade: 10 })).toEqual({ kind: "create" });
-  expect(chooseSessionStart(rows, { quizType: "diagnostic", topicId: null, grade: 9 })).toEqual({ kind: "create" });
+  const create = { kind: "create", supersededIds: [] };
+  expect(decide(rows, { quizType: "practice", topicId: "t2", grade: 9 })).toEqual(create);
+  expect(decide(rows, { quizType: "practice", topicId: "t1", grade: 10 })).toEqual(create);
+  expect(decide(rows, { quizType: "diagnostic", topicId: null, grade: 9 })).toEqual(create);
 });
 
-test("a diagnostic reuses another active diagnostic (topic null, same grade)", () => {
+test("a diagnostic reuses another just-issued diagnostic (topic null, same grade)", () => {
   const rows = [active({ id: "diag", quizType: "diagnostic", topicId: null, grade: 10 })];
-  expect(chooseSessionStart(rows, { quizType: "diagnostic", topicId: null, grade: 10 })).toEqual({
+  expect(decide(rows, { quizType: "diagnostic", topicId: null, grade: 10 })).toEqual({
     kind: "reuse",
     sessionId: "diag",
   });
 });
 
 test("with no active sessions, the decision is to create", () => {
-  expect(chooseSessionStart([], { quizType: "diagnostic", topicId: null, grade: 9 })).toEqual({ kind: "create" });
+  expect(decide([], { quizType: "diagnostic", topicId: null, grade: 9 })).toEqual({
+    kind: "create",
+    supersededIds: [],
+  });
 });
 
 test("at the active-session cap with no match, starting is refused", () => {
@@ -62,12 +90,22 @@ test("at the active-session cap with no match, starting is refused", () => {
     active({ id: `s${i}`, topicId: `topic-${i}`, grade: 9 }),
   );
   // A brand-new topic can't be started (would exceed the cap)…
-  expect(chooseSessionStart(rows, { quizType: "practice", topicId: "topic-new", grade: 9 })).toEqual({
+  expect(decide(rows, { quizType: "practice", topicId: "topic-new", grade: 9 })).toEqual({
     kind: "at_limit",
   });
   // …but an already-active topic is still reused, never blocked.
-  expect(chooseSessionStart(rows, { quizType: "practice", topicId: "topic-3", grade: 9 })).toEqual({
+  expect(decide(rows, { quizType: "practice", topicId: "topic-3", grade: 9 })).toEqual({
     kind: "reuse",
     sessionId: "s3",
+  });
+});
+
+test("at the cap, superseding an abandoned match frees its slot (never blocked)", () => {
+  const rows: ActiveSessionRow[] = Array.from({ length: MAX_ACTIVE_ISSUED_SESSIONS }, (_, i) =>
+    active({ id: `s${i}`, topicId: `topic-${i}`, grade: 9, createdAt: STALE_AT }),
+  );
+  expect(decide(rows, { quizType: "practice", topicId: "topic-3", grade: 9 })).toEqual({
+    kind: "create",
+    supersededIds: ["s3"],
   });
 });
