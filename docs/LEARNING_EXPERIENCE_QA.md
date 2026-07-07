@@ -39,6 +39,9 @@ Related code: `src/components/quiz/`, `src/lib/math/`, `src/app/learner/`.
 - [ ] Consecutive runs of the same topic rotate through unseen questions first —
       recently-attempted ones reappear only when the topic bank is too small to
       fill a set without them.
+- [ ] Abandoning a run (leaving without submitting) and starting the topic again
+      later issues a FRESH set — the abandoned session is superseded. Only a
+      refresh/double-click within ~2 minutes resumes the identical set.
 - [ ] Question presentation matches the diagnostic (badges, wrapping, notation).
 - [ ] The expected-answer note reflects the answer form (numeric / expression / equation).
 

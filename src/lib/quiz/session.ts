@@ -32,39 +32,59 @@ export type FinalizeAttempt = {
 };
 
 /** A learner's currently-active (issued, unexpired) session, for the reuse/cap decision. */
-export type ActiveSessionRow = { id: string; quizType: string; topicId: string | null; grade: number | null };
+export type ActiveSessionRow = {
+  id: string;
+  quizType: string;
+  topicId: string | null;
+  grade: number | null;
+  createdAt: string;
+};
 
-/** The outcome of the reuse/cap decision. */
+/**
+ * How long a matching active session still counts as "the same start" and is
+ * reused. Within this window a refresh or double-click resumes the identical
+ * set; beyond it the learner has abandoned the run (answers only ever live in
+ * the browser, so there is nothing to resume) and a restart supersedes it with
+ * a freshly-selected set.
+ */
+export const SESSION_REUSE_GRACE_MS = 2 * 60_000;
+
+/** The outcome of the reuse/supersede/cap decision. */
 export type SessionStartDecision =
   | { kind: "reuse"; sessionId: string }
-  | { kind: "create" }
+  | { kind: "create"; supersededIds: string[] }
   | { kind: "at_limit" };
 
 /**
  * Pure decision for starting a session, given the learner's active issued
- * sessions. Reuses a matching one (same type + topic + grade) so a refresh or
- * double-click resumes instead of piling up rows; otherwise creates one, unless
- * the learner already holds `max` active issued sessions (abuse cap). Injectable
- * and side-effect-free for testing.
+ * sessions. A matching session (same type + topic + grade) younger than
+ * {@link SESSION_REUSE_GRACE_MS} is reused (refresh / double-click); an older
+ * match is superseded — expired and replaced with a fresh set. Superseded
+ * matches free their slot, so only unrelated active sessions count toward the
+ * `max` abuse cap. Injectable and side-effect-free for testing.
  */
 export function chooseSessionStart(
   active: ActiveSessionRow[],
   want: { quizType: QuizType; topicId: string | null; grade: number | null },
   max: number = MAX_ACTIVE_ISSUED_SESSIONS,
+  nowMs: number = Date.now(),
 ): SessionStartDecision {
-  const match = active.find(
+  const matches = active.filter(
     (s) => s.quizType === want.quizType && s.topicId === want.topicId && s.grade === want.grade,
   );
-  if (match) return { kind: "reuse", sessionId: match.id };
-  if (active.length >= max) return { kind: "at_limit" };
-  return { kind: "create" };
+  // An unparseable createdAt compares as stale (NaN), so it gets superseded.
+  const fresh = matches.find((s) => nowMs - Date.parse(s.createdAt) < SESSION_REUSE_GRACE_MS);
+  if (fresh) return { kind: "reuse", sessionId: fresh.id };
+  if (active.length - matches.length >= max) return { kind: "at_limit" };
+  return { kind: "create", supersededIds: matches.map((s) => s.id) };
 }
 
 /**
- * Persists the exact issued question set as a new session and returns its id, OR
- * reuses a still-active matching session (refresh/double-click), OR returns null
- * when the learner is at the active-session cap or the insert fails. Bounds the
- * number of simultaneously-issued sessions per learner.
+ * Persists the exact issued question set as a new session and returns its id.
+ * A matching session started moments ago is reused (refresh/double-click); an
+ * older abandoned match is expired and replaced with the fresh set. Returns
+ * null when the learner is at the active-session cap or the insert fails.
+ * Bounds the number of simultaneously-issued sessions per learner.
  */
 export async function startSession(
   admin: SupabaseClient,
@@ -84,7 +104,7 @@ export async function startSession(
   // Look at the learner's active (issued, unexpired) sessions to decide.
   const { data: activeData } = await admin
     .from("quiz_sessions")
-    .select("id, quiz_type, topic_id, grade")
+    .select("id, quiz_type, topic_id, grade, created_at")
     .eq("learner_id", params.learnerId)
     .eq("status", "issued")
     .gt("expires_at", nowIso)
@@ -96,7 +116,14 @@ export async function startSession(
     quiz_type: string;
     topic_id: string | null;
     grade: number | null;
-  }[]).map((row) => ({ id: row.id, quizType: row.quiz_type, topicId: row.topic_id, grade: row.grade }));
+    created_at: string;
+  }[]).map((row) => ({
+    id: row.id,
+    quizType: row.quiz_type,
+    topicId: row.topic_id,
+    grade: row.grade,
+    createdAt: row.created_at,
+  }));
 
   const decision = chooseSessionStart(active, {
     quizType: params.quizType,
@@ -105,6 +132,17 @@ export async function startSession(
   });
   if (decision.kind === "reuse") return decision.sessionId;
   if (decision.kind === "at_limit") return null;
+
+  // Expire the abandoned matches being replaced. Best-effort: if this fails
+  // they simply linger until their TTL / the scheduled cleanup — never blocks
+  // issuing the fresh set. status stays 'issued' so cleanup semantics apply.
+  if (decision.supersededIds.length > 0) {
+    await admin
+      .from("quiz_sessions")
+      .update({ expires_at: new Date(Date.now() - 1000).toISOString() })
+      .in("id", decision.supersededIds)
+      .eq("status", "issued");
+  }
 
   const { data, error } = await admin
     .from("quiz_sessions")
