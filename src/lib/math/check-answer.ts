@@ -115,15 +115,22 @@ function factoredProductsEqual(a: string, b: string): boolean {
 // ---------------------------------------------------------------------------
 // Symbolic (same-form) equivalence
 //
-// A guarded mathjs fallback that bridges rewrites WITHIN one written form —
-// term order ("(2+x)" ≡ "(x+2)", "1+2x+x^2" ≡ "x^2+2x+1") and spacing
+// A guarded mathjs fallback that bridges pure REORDERINGS within one written
+// form — term order ("(2+x)" ≡ "(x+2)", "1+2x+x^2" ≡ "x^2+2x+1") and spacing
 // ("2 x+1" ≡ "2x+1") — by checking that the difference of the two expressions
-// simplifies to exactly zero. It never bridges ACROSS forms: an expanded
-// polynomial is not accepted for a factorised answer (or vice versa), and an
-// unsimplified fraction is not accepted for its simplified value. That gate is
-// deliberate: "Factorise: x^2-9" must not mark the question echoed back as
-// correct. Marking stays fully deterministic — no AI, no approximation (the
-// difference must simplify to the constant 0, never "close to 0").
+// simplifies to exactly zero. Two gates keep it from crediting work the learner
+// hasn't done:
+//   1. WRITTEN FORM must match — an expanded polynomial is not accepted for a
+//      factorised answer, nor an unsimplified fraction for its simplified value
+//      ("Factorise: x^2-9" must not accept the question echoed back).
+//   2. TOKEN MULTISET must match — the two sides must be anagrams of each other
+//      (same symbols, just reordered). A SIMPLIFICATION changes the tokens
+//      ("x^3*x^4" -> "x^7", "3x+2x" -> "5x"), so echoing an unsimplified
+//      expression at a "Simplify:" question is rejected even though it is
+//      mathematically equal. mathjs still does the real work of confirming the
+//      reordering is valid ("x+2y" vs "y+2x" are anagrams but NOT equal).
+// Marking stays fully deterministic — no AI, no approximation (the difference
+// must simplify to the constant 0, never "close to 0").
 // ---------------------------------------------------------------------------
 
 const SYMBOLIC_MAX_LENGTH = 80;
@@ -138,6 +145,15 @@ function valueForm(value: string): ValueForm {
   if (value.includes("/")) return "fraction";
   if (value.includes("(")) return "factored";
   return "plain";
+}
+
+/**
+ * The sorted multiset of non-space characters. Two expressions that are pure
+ * reorderings of each other share it ("(2+x)" / "(x+2)"); a simplification does
+ * not ("x^3*x^4" vs "x^7"). Used to restrict symbolic acceptance to reorderings.
+ */
+function tokenSignature(value: string): string {
+  return value.replace(/\s/g, "").split("").sort().join("");
 }
 
 /**
@@ -194,6 +210,10 @@ function symbolicallyEqual(a: string, b: string): boolean {
   if (a.length > SYMBOLIC_MAX_LENGTH || b.length > SYMBOLIC_MAX_LENGTH) return false;
   if (!SYMBOLIC_CHARSET.test(a) || !SYMBOLIC_CHARSET.test(b)) return false;
   if (valueForm(a) !== valueForm(b)) return false;
+  // Only accept pure reorderings, never simplifications: the two sides must be
+  // token anagrams. "x^3*x^4" and "x^7" differ here, so echoing an unsimplified
+  // expression at a "Simplify:" question is rejected even though it is equal.
+  if (tokenSignature(a) !== tokenSignature(b)) return false;
   // Numeric answers are handled exactly by rationalsEqual; symbolically
   // accepting "2+2" for "4" would credit unsimplified computations.
   if (toRational(a) || toRational(b)) return false;
