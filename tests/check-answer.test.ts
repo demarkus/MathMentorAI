@@ -103,6 +103,22 @@ test("isAnswerCorrect: symbolic equivalence never crosses written forms", () => 
   assert.equal(isAnswerCorrect("(x^2-9)/(x-3)", "x+3"), false); // unsimplified algebraic fraction
 });
 
+test("isAnswerCorrect: symbolic accepts reorderings but NOT same-form simplifications", () => {
+  // A learner echoing the question at a "Simplify:" prompt must NOT get marks,
+  // even though the two sides are mathematically equal and the same (plain) form.
+  assert.equal(isAnswerCorrect("x^3*x^4", "x^7"), false); // exponent law not applied
+  assert.equal(isAnswerCorrect("x^3 × x^4", "x^7"), false); // as the learner would type it
+  assert.equal(isAnswerCorrect("3x+2x", "5x"), false); // like terms not collected
+  assert.equal(isAnswerCorrect("2x+3x", "5x"), false);
+  assert.equal(isAnswerCorrect("x+x", "2x"), false);
+  // Pure reorderings (same tokens) are still accepted — the fix is surgical.
+  assert.equal(isAnswerCorrect("(2+x)(x+3)", "(x+2)(x+3)"), true);
+  assert.equal(isAnswerCorrect("1+2x+x^2", "x^2+2x+1"), true);
+  assert.equal(isAnswerCorrect("y+x", "x+y"), true);
+  // Anagram but NOT equal stays rejected (mathjs still does the real check).
+  assert.equal(isAnswerCorrect("x+2y", "2x+y"), false);
+});
+
 test("isAnswerCorrect: the symbolic fallback stays guarded", () => {
   assert.equal(isAnswerCorrect("2x", "x2"), false); // "x2" is its own symbol, not 2*x
   assert.equal(isAnswerCorrect("(x+1)^13+x", "x+(x+1)^13"), false); // exponent above the safety cap
